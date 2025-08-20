@@ -1,0 +1,25 @@
+# Go
+/bin/
+/build/
+/dist/
+*.exe
+*.exe~
+*.test
+*.out
+coverage/
+
+# Node
+node_modules/
+internal/web/node_modules/
+internal/web/.vite/
+internal/web/dist/
+internal/web/static/*
+!internal/web/static/.keep
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

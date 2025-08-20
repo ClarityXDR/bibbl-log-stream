@@ -1,0 +1,1 @@
+[{"id":"src-1","name":"Syslog","type":"syslog","config":{"certFile":"certs/bibbl.crt","host":"127.0.0.1","keyFile":"certs/bibbl.key","minVersion":"1.2","port":6514,"protocol":"tls"},"status":"running","enabled":true,"lastUnix":1754888799,"flow":false}]

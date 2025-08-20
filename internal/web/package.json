@@ -1,0 +1,28 @@
+{
+  "name": "bibbl-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+  "react-dom": "^18.2.0",
+  "@mui/material": "^5.15.20",
+  "@mui/icons-material": "^5.15.20",
+  "@emotion/react": "^11.11.4",
+  "@emotion/styled": "^11.11.0",
+  "axios": "^1.7.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.67",
+    "@types/react-dom": "^18.2.22",
+  "@types/node": "^20.14.12",
+    "typescript": "^5.5.4",
+    "vite": "^5.3.4",
+    "@vitejs/plugin-react": "^4.3.1"
+  }
+}

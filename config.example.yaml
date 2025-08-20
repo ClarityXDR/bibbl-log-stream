@@ -1,0 +1,38 @@
+server:
+  host: 0.0.0.0
+  port: 9444
+  readtimeout: 15s
+  writetimeout: 15s
+  tls:
+    cert_file: ""
+    key_file: ""
+    min_version: "1.2"
+
+inputs:
+  syslog:
+    enabled: false
+    host: 0.0.0.0
+    port: 6514
+    tls:
+      cert_file: ""
+      key_file: ""
+      min_version: "1.2"
+  akamai_ds2:
+    enabled: false # set true to enable default Akamai DataStream 2 polling source
+    host: "example.luna.akamaiapis.net" # Akamai API base host (no protocol)
+    client_token: ""
+    client_secret: ""
+    access_token: ""
+    interval_seconds: 60
+    # streams: "12345,67890" # optional list of stream IDs (comma separated or YAML array)
+
+outputs:
+  # Seeded automatically at startup (idempotent) but documented for clarity
+  # sentinel:
+  #   table_name: Custom_BibblLogs_CL
+  azure_datalake:
+    storage_account: "<account>" # Azure Storage account name
+    filesystem: "logs"          # ADLS Gen2 filesystem (container) name
+    directory: "bibbl/raw"      # Optional base directory path
+    path_template: "bibbl/raw/${yyyy}/${MM}/${dd}/${HH}/data-${mm}.jsonl" # simple token expansion plan
+    format: jsonl                # future: parquet
