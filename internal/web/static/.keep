@@ -1,2 +1,0 @@
-# This file ensures the static directory exists in git
-# The directory will be populated with built web assets when running 'make web'
