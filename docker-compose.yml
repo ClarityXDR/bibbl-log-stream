@@ -15,7 +15,7 @@ services:
     
     # Network configuration for assigned IP
     networks:
-      clartiy-lan:
+      clarity-lan:
         ipv4_address: 192.168.0.218
     
     ports:
