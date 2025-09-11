@@ -31,4 +31,20 @@ test:
 race:
 	set CGO_ENABLED=1 && go test -race ./...
 
-.PHONY: all windows linux linux-arm web clean
+# Docker targets
+docker: web
+	docker build -t bibbl-stream:latest .
+
+docker-compose:
+	docker-compose build
+
+docker-up:
+	docker-compose up -d
+
+docker-down:
+	docker-compose down
+
+docker-logs:
+	docker-compose logs -f bibbl-stream
+
+.PHONY: all windows linux linux-arm web clean test race docker docker-compose docker-up docker-down docker-logs
