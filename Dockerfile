@@ -1,7 +1,10 @@
 # Dockerfile for Bibbl Log Stream
 # Build Go application with pre-built web UI
 
-FROM golang:1.21-alpine AS go-builder
+FROM golang:1.22-alpine AS go-builder
+
+# Install ca-certificates for TLS certificate verification and update them
+RUN apk add --no-cache ca-certificates && update-ca-certificates
 
 WORKDIR /app
 
