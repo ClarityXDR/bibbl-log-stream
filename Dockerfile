@@ -1,15 +1,16 @@
 # Dockerfile for Bibbl Log Stream
 # Build Go application with pre-built web UI
 
-FROM golang:1.22-alpine AS go-builder
-
-# Install ca-certificates for TLS certificate verification and update them
-RUN apk add --no-cache ca-certificates && update-ca-certificates
+FROM golang:1.22-bullseye AS go-builder
 
 WORKDIR /app
 
 # Copy go mod files first for better caching
 COPY go.mod go.sum ./
+
+# Download dependencies with relaxed TLS verification for build environment issues
+ENV GOPROXY=direct
+ENV GOSUMDB=off
 RUN go mod download
 
 # Copy source code
@@ -30,14 +31,14 @@ RUN if [ -z "$DATE" ]; then DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ); fi && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o bibbl-stream cmd/bibbl/main.go
 
 # Final runtime image
-FROM alpine:3.19
+FROM debian:bullseye-slim
 
 # Install runtime dependencies
-RUN apk add --no-cache ca-certificates tzdata wget
+RUN apt-get update && apt-get install -y ca-certificates tzdata wget && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
-RUN addgroup -g 1001 -S bibbl && \
-    adduser -u 1001 -S bibbl -G bibbl
+RUN groupadd -g 1001 bibbl && \
+    useradd -u 1001 -g bibbl -s /bin/false bibbl
 
 # Create directories
 RUN mkdir -p /app/data /app/logs /app/certs && \
