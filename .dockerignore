@@ -1,0 +1,68 @@
+# Git
+.git
+.gitignore
+.github
+
+# Build artifacts
+/bin/
+/build/
+/dist/
+*.exe
+*.exe~
+*.test
+*.out
+coverage/
+bibbl-stream
+bibbl-stream.exe
+bibbl-stream-arm64
+
+# Node.js (will be built in container)
+node_modules/
+internal/web/node_modules/
+internal/web/.vite/
+internal/web/dist/
+
+# Documentation
+*.md
+!README.md
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+
+# Logs
+*.log
+logs/
+internal/api/audit.log
+
+# Certificates (will be generated or mounted)
+certs/
+*.pem
+*.key
+*.crt
+
+# Config files with secrets
+config.yaml
+config.yml
+.env
+.env.*
+
+# Test files
+*_test.go
+testdata/
+
+# Development scripts
+start.ps1
+build.ps1
+
+# Security scan results
+gosec-*.json

@@ -1,0 +1,69 @@
+# Production Configuration for Bibbl Log Stream
+# For Docker deployment with domain: bibbl.clarityxdr.com
+# Assigned IP: 192.168.0.218
+
+server:
+  host: 0.0.0.0
+  port: 9444
+  readtimeout: 30s
+  writetimeout: 30s
+  max_request_bytes: 52428800  # 50MB for large log batches
+  rate_limit_per_min: 1200     # 20 rps average
+  tls:
+    # Auto-generated certificates will include bibbl.clarityxdr.com
+    cert_file: ""  # Leave empty for auto-generation
+    key_file: ""   # Leave empty for auto-generation
+    min_version: "1.2"
+    # client_ca_file: "/app/certs/client-ca.pem"  # Uncomment for client cert auth
+    # client_auth: "require"  # Uncomment for client cert auth
+
+logging:
+  level: info
+  format: json  # Better for container log aggregation
+
+# Input configurations
+inputs:
+  syslog:
+    enabled: true
+    host: 0.0.0.0
+    port: 6514
+    tls:
+      cert_file: ""  # Will reuse server certs
+      key_file: ""
+      min_version: "1.2"
+      
+  # Akamai DataStream 2 (configure via environment variables)
+  akamai_ds2:
+    enabled: false
+    host: ""
+    client_token: ""
+    client_secret: ""
+    access_token: ""
+    interval_seconds: 60
+
+# Output configurations (configure via environment variables)
+outputs:
+  # Microsoft Sentinel
+  sentinel:
+    enabled: false
+    workspace_id: ""
+    shared_key: ""
+    table_name: "Custom_BibblLogs_CL"
+    
+  # Azure Data Lake
+  azure_datalake:
+    enabled: false
+    storage_account: ""
+    filesystem: "logs"
+    directory: "bibbl/raw"
+    path_template: "bibbl/raw/${yyyy}/${MM}/${dd}/${HH}/data-${mm}.jsonl"
+    format: jsonl
+    
+  # Splunk
+  splunk:
+    enabled: false
+    url: ""
+    token: ""
+    index: "main"
+    source: "bibbl"
+    sourcetype: "bibbl:json"
