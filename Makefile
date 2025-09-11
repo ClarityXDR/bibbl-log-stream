@@ -40,7 +40,8 @@ docker: web vendor
 	docker build -t bibbl-stream:latest .
 
 docker-compose:
-	docker-compose build
+	make web vendor
+	docker compose build
 
 docker-up:
 	docker-compose up -d

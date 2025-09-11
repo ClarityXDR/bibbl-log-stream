@@ -13,7 +13,7 @@ COPY vendor/ ./vendor/
 COPY . .
 
 # Ensure web assets are present (should be pre-built)
-RUN if [ ! -d "internal/web/static" ]; then echo "ERROR: Web assets not built. Run 'make web' first."; exit 1; fi
+RUN if [ ! -d "internal/web/static" ]; then echo "ERROR: Web assets not built. Run 'make web' first or use 'make docker' instead of 'docker build' directly."; exit 1; fi
 
 # Generate embedded assets and build using vendor directory (no network required)
 RUN go generate ./...
@@ -53,6 +53,3 @@ ENV BIBBL_SERVER_PORT=9444
 
 # Default command
 CMD ["/app/bibbl-stream"]
-
-# Default command
-CMD ["./bibbl-stream"]
