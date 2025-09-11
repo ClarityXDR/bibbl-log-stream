@@ -20,9 +20,13 @@ web:
 	cd internal/web && npm install && npm run build
 	go generate ./...
 
+vendor:
+	go mod vendor
+
 clean:
 	rm -f bibbl-stream bibbl-stream.exe bibbl-stream-arm64
 	rm -rf internal/web/static/*
+	rm -rf vendor/
 
 test:
 	go test ./...
@@ -32,7 +36,7 @@ race:
 	set CGO_ENABLED=1 && go test -race ./...
 
 # Docker targets
-docker: web
+docker: web vendor
 	docker build -t bibbl-stream:latest .
 
 docker-compose:
@@ -47,4 +51,4 @@ docker-down:
 docker-logs:
 	docker-compose logs -f bibbl-stream
 
-.PHONY: all windows linux linux-arm web clean test race docker docker-compose docker-up docker-down docker-logs
+.PHONY: all windows linux linux-arm web vendor clean test race docker docker-compose docker-up docker-down docker-logs
