@@ -15,7 +15,7 @@ services:
     
     # Network configuration for assigned IP
     networks:
-      bibbl-network:
+      clartiy-lan:
         ipv4_address: 192.168.0.218
     
     ports:
@@ -66,7 +66,7 @@ services:
       - "traefik.http.services.bibbl.loadbalancer.server.port=9444"
 
 networks:
-  bibbl-network:
+  clarity-lan:
     driver: bridge
     ipam:
       config:
