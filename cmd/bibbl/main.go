@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -58,15 +59,27 @@ func main() {
 
 	// Ensure web server has TLS: generate self-signed cert if missing
 	if cfg.Server.TLS.CertFile == "" || cfg.Server.TLS.KeyFile == "" {
-		// include IPv4 loopback by default to ensure browser trust locally
-		cpath, kpath, err := bibbltls.EnsurePairExists(cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile, []string{"localhost", "127.0.0.1", cfg.Server.Host}, 0)
+		// Base hostnames for certificate
+		hosts := []string{"localhost", "127.0.0.1", cfg.Server.Host}
+		
+		// Add any additional hosts from environment variable
+		if extraHosts := os.Getenv("BIBBL_TLS_EXTRA_HOSTS"); extraHosts != "" {
+			for _, host := range strings.Split(extraHosts, ",") {
+				host = strings.TrimSpace(host)
+				if host != "" {
+					hosts = append(hosts, host)
+				}
+			}
+		}
+		
+		cpath, kpath, err := bibbltls.EnsurePairExists(cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile, hosts, 0)
 		if err != nil {
 			log.Printf("web tls self-signed generation failed: %v", err)
 		} else {
 			cfg.Server.TLS.CertFile = cpath
 			cfg.Server.TLS.KeyFile = kpath
 			if cfg.Server.TLS.MinVersion == "" { cfg.Server.TLS.MinVersion = "1.2" }
-			log.Printf("web tls self-signed cert generated: %s, key: %s", cpath, kpath)
+			log.Printf("web tls self-signed cert generated: %s, key: %s (hosts: %v)", cpath, kpath, hosts)
 			if cfg.Server.Host != "127.0.0.1" && cfg.Server.Host != "localhost" {
 				log.Printf("WARNING: using auto-generated self-signed TLS cert on host %s - not recommended for production", cfg.Server.Host)
 			}

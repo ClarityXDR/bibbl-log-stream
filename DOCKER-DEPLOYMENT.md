@@ -122,7 +122,8 @@ Key environment variables you can set in Portainer:
 BIBBL_SERVER_HOST=0.0.0.0
 BIBBL_SERVER_PORT=9444
 
-# TLS
+# TLS - Auto-generated certificates will include these hosts
+BIBBL_TLS_EXTRA_HOSTS=bibbl.clarityxdr.com,192.168.0.218
 BIBBL_SERVER_TLS_MIN_VERSION=1.2
 
 # Logging
@@ -137,6 +138,8 @@ BIBBL_INPUTS_SYSLOG_PORT=6514
 BIBBL_OUTPUTS_SENTINEL_WORKSPACE_ID=your-workspace-id
 BIBBL_OUTPUTS_SENTINEL_SHARED_KEY=your-shared-key
 ```
+
+**Important**: The `BIBBL_TLS_EXTRA_HOSTS` environment variable ensures that the auto-generated TLS certificate includes the domain `bibbl.clarityxdr.com` and IP `192.168.0.218` in the Subject Alternative Name (SAN) field, making the certificate valid for both the domain and IP access.
 
 ### Volume Mounts
 Configure persistent storage in Portainer:
@@ -205,6 +208,46 @@ echo '<134>1 2024-01-01T12:00:00Z test-host bibbl-test - - Test message' | \
 3. **Secrets Management**
    - Use Portainer secrets for sensitive configuration
    - Avoid hardcoding credentials in environment variables
+
+## Deployment Validation
+
+After deployment, verify the service is working correctly:
+
+### 1. Container Health
+```bash
+# Check container status
+docker ps | grep bibbl-stream
+
+# Check health status
+docker inspect bibbl-stream | grep -A 5 '"Health"'
+
+# View logs
+docker logs bibbl-stream
+```
+
+### 2. Network Connectivity
+```bash
+# Test from local machine
+curl -k https://192.168.0.218:9444/api/v1/health
+curl -k https://bibbl.clarityxdr.com:9444/api/v1/health
+
+# Expected response: {"status":"ok"}
+```
+
+### 3. TLS Certificate Verification
+```bash
+# Check certificate includes correct domains
+echo | openssl s_client -connect bibbl.clarityxdr.com:9444 -servername bibbl.clarityxdr.com 2>/dev/null | openssl x509 -noout -text | grep -A 2 "Subject Alternative Name"
+
+# Should show: DNS:bibbl.clarityxdr.com, IP:192.168.0.218
+```
+
+### 4. Syslog Testing
+```bash
+# Test syslog input (if enabled)
+echo '<134>1 2024-01-01T12:00:00Z test-host bibbl-test - - Test message' | \
+  openssl s_client -connect bibbl.clarityxdr.com:6514 -quiet -verify_return_error
+```
 
 ## Maintenance
 

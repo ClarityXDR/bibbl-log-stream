@@ -24,6 +24,7 @@ services:
       
       # TLS configuration - will use auto-generated certs for bibbl.clarityxdr.com
       BIBBL_SERVER_TLS_MIN_VERSION: "1.2"
+      BIBBL_TLS_EXTRA_HOSTS: "bibbl.clarityxdr.com,192.168.0.218"
       
       # Logging
       BIBBL_LOGGING_LEVEL: "info"
@@ -47,7 +48,7 @@ services:
       - ./config:/app/config:ro
     
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9444/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9444/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
