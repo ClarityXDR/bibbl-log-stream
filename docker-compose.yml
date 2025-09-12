@@ -63,14 +63,6 @@ services:
       - "traefik.http.routers.bibbl.tls=true"
       - "traefik.http.services.bibbl.loadbalancer.server.port=9444"
 
-networks:
-  clarity-lan:
-    driver: macvlan
-    ipam:
-      config:
-        - subnet: 192.168.0.0/24
-          gateway: 192.168.0.1
-
 volumes:
   bibbl-data:
     driver: local
