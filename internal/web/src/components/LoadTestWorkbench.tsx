@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
+import './styles.css'
 
-type Status = { sourceId: string; produced: number; eps: number; config: any }
+type Status = { sourceId: string; produced: number; eps: number; config: any; error?: string }
 
 interface Props {
   sourceId?: string
@@ -24,7 +25,13 @@ export default function LoadTestWorkbench({sourceId, sourceName, sourceConfig, o
     try {
       const r = await fetch('/api/v1/loadtest/status')
       if(!r.ok) throw new Error(`${r.status}`)
-      const j = await r.json(); setStatus(j); setRunning(true)
+      const j = await r.json(); 
+      setStatus(j); 
+      if (j.error) {
+        setRunning(false)
+      } else {
+        setRunning(j.sourceId !== "")
+      }
     } catch { setRunning(false) }
   }
   useEffect(()=>{ const id = setInterval(loadStatus, 2000); loadStatus(); return ()=>clearInterval(id) }, [])
@@ -41,16 +48,16 @@ export default function LoadTestWorkbench({sourceId, sourceName, sourceConfig, o
   const stop = async () => { try{ await fetch('/api/v1/loadtest/stop', {method:'POST'}); setRunning(false) }catch{} }
 
   const content = (
-    <section className="card" style={inline?undefined:{minWidth:600}}>
+    <section className={`card ${inline ? 'load-test-card inline' : 'load-test-card'}`}>
       <h2>Load Test {sourceName?`(from ${sourceName})`: 'Workbench'}</h2>
-      <p className="muted" style={{marginTop:-6}}>Generate synthetic events to evaluate throughput and queue behavior. A temporary synthetic source is created; original sources are untouched.</p>
+      <p className="muted load-test-muted">Generate synthetic events to evaluate throughput and queue behavior. A temporary synthetic source is created; original sources are untouched.</p>
       <div className="form">
-        <div className="row"><label>Rate (EPS)</label><input type="number" value={rate} onChange={e=>setRate(parseInt(e.target.value)||0)} /></div>
-        <div className="row"><label>Size (bytes)</label><input type="number" value={size} onChange={e=>setSize(parseInt(e.target.value)||0)} /></div>
-        <div className="row"><label>Workers</label><input type="number" value={workers} onChange={e=>setWorkers(parseInt(e.target.value)||0)} /></div>
-        <div className="row"><label>Template</label><input value={template} onChange={e=>setTemplate(e.target.value)} style={{flex:1}} /></div>
-  <div className="row"><label>Compress (gzip+base64)</label><input type="checkbox" checked={compress} onChange={e=>setCompress(e.target.checked)} /></div>
-        <div className="row" style={{gap:8}}>
+        <div className="row"><label htmlFor="rate-input">Rate (EPS)</label><input id="rate-input" type="number" value={rate} onChange={e=>setRate(parseInt(e.target.value)||0)} /></div>
+        <div className="row"><label htmlFor="size-input">Size (bytes)</label><input id="size-input" type="number" value={size} onChange={e=>setSize(parseInt(e.target.value)||0)} /></div>
+        <div className="row"><label htmlFor="workers-input">Workers</label><input id="workers-input" type="number" value={workers} onChange={e=>setWorkers(parseInt(e.target.value)||0)} /></div>
+        <div className="row"><label htmlFor="template-input">Template</label><input id="template-input" className="load-test-template-input" value={template} onChange={e=>setTemplate(e.target.value)} /></div>
+  <div className="row"><label htmlFor="compress-input">Compress (gzip+base64)</label><input id="compress-input" type="checkbox" checked={compress} onChange={e=>setCompress(e.target.checked)} /></div>
+        <div className="row load-test-row-gap">
           <button className="btn" onClick={start} disabled={running}>Start</button>
           <button className="btn secondary" onClick={stop} disabled={!running}>Stop</button>
           <button className="btn secondary" onClick={loadStatus}>Refresh</button>
@@ -58,10 +65,13 @@ export default function LoadTestWorkbench({sourceId, sourceName, sourceConfig, o
         </div>
       </div>
       {err && <div className="alert">{err}</div>}
-      <div className="grid" style={{gridTemplateColumns:'1fr 1fr 1fr', gap:12}}>
-        <section className="card"><h3>Current EPS</h3><div style={{fontSize:28}}>{status ? status.eps.toFixed(0) : '—'}</div></section>
-        <section className="card"><h3>Total Produced</h3><div style={{fontSize:28}}>{status ? status.produced : '—'}</div></section>
-        <section className="card"><h3>Source ID</h3><div style={{fontSize:16}}>{status?.sourceId||'—'}</div></section>
+      {status?.error && <div className="alert load-test-alert-warning">
+        ℹ️ {status.error}. You can still create a temporary synthetic source using the controls above.
+      </div>}
+      <div className="grid load-test-grid">
+        <section className="card"><h3>Current EPS</h3><div className="load-test-stat-large">{status ? status.eps.toFixed(0) : '—'}</div></section>
+        <section className="card"><h3>Total Produced</h3><div className="load-test-stat-large">{status ? status.produced : '—'}</div></section>
+        <section className="card"><h3>Source ID</h3><div className="load-test-stat-small">{status?.sourceId||'—'}</div></section>
       </div>
       <section className="card"><h3>Config</h3><pre className="pre">{status? JSON.stringify(status.config, null, 2): JSON.stringify({rate,size,workers,template,compress},null,2)}</pre></section>
       {sourceConfig && <section className="card"><h3>Source Settings Snapshot</h3><pre className="pre">{JSON.stringify(sourceConfig,null,2)}</pre></section>}
@@ -71,7 +81,7 @@ export default function LoadTestWorkbench({sourceId, sourceName, sourceConfig, o
   if (inline) return <main className="grid">{content}</main>
   return (
     <div className="modal-backdrop">
-      <div className="modal" style={{maxWidth:900}}>
+      <div className="modal load-test-modal">
         {content}
       </div>
     </div>

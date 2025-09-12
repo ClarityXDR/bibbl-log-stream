@@ -1,58 +1,51 @@
-# Dockerfile for Bibbl Log Stream
-# Build Go application with pre-built web UI
+# Multi-stage build for Bibbl Log Stream
+# 1) Build React web UI (internal/web)
+# 2) Build Go binary embedding the built static assets
+# 3) Create minimal runtime image
 
-FROM golang:1.22-bullseye AS go-builder
+ARG GO_VERSION=1.22
+ARG NODE_VERSION=20
 
-WORKDIR /app
+# --- Web UI build ---
+FROM node:${NODE_VERSION}-alpine AS web
+WORKDIR /src
 
-# Copy go mod files and vendor directory for offline build
+# Only copy dependency manifests first to leverage Docker cache
+COPY internal/web/package*.json internal/web/
+WORKDIR /src/internal/web
+RUN npm ci || npm install
+COPY internal/web/ /src/internal/web/
+RUN npm run build
+
+# --- Go build ---
+FROM golang:${GO_VERSION}-alpine AS builder
+RUN apk add --no-cache ca-certificates git
+WORKDIR /src
 COPY go.mod go.sum ./
 COPY vendor/ ./vendor/
+# If vendor exists, Go will honor -mod=vendor; download step is skipped
+RUN if [ -d vendor ]; then echo "Using vendored modules"; else go mod download; fi
+COPY . ./
+# Bring in built web assets produced in the previous stage
+COPY --from=web /src/internal/web/static /src/internal/web/static
 
-# Copy source code
-COPY . .
-
-# Ensure web assets are present (should be pre-built)
-RUN if [ ! -d "internal/web/static" ]; then echo "ERROR: Web assets not built. Run 'make web' first."; exit 1; fi
-
-# Generate embedded assets and build using vendor directory (no network required)
-RUN go generate ./...
-
-# Build the application using vendor dependencies
 ARG VERSION=0.1.0
-ARG COMMIT=docker
+ARG COMMIT=dev
 ARG DATE
-RUN if [ -z "$DATE" ]; then DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ); fi && \
-    LDFLAGS="-w -s -X 'bibbl/internal/version.Version=${VERSION}' -X 'bibbl/internal/version.Commit=${COMMIT}' -X 'bibbl/internal/version.Date=${DATE}'" && \
-    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=vendor -ldflags="$LDFLAGS" -o bibbl-stream cmd/bibbl/main.go
+ENV CGO_ENABLED=0
+RUN go build -mod=vendor \
+    -ldflags "-w -s -X 'bibbl/internal/version.Version=${VERSION}' -X 'bibbl/internal/version.Commit=${COMMIT}' -X 'bibbl/internal/version.Date=${DATE}'" \
+    -o /out/bibbl-stream ./cmd/bibbl
 
-# Final runtime image using scratch for maximum security and minimal size
-FROM scratch
+# --- Runtime ---
+FROM alpine:3.20 AS runtime
+RUN apk add --no-cache ca-certificates tzdata
+WORKDIR /
+COPY --from=builder /out/bibbl-stream /bibbl-stream
 
-# Copy CA certificates from builder stage
-COPY --from=go-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-
-# Copy timezone data from builder stage
-COPY --from=go-builder /usr/share/zoneinfo /usr/share/zoneinfo
-
-WORKDIR /app
-
-# Copy binary and config from builder
-COPY --from=go-builder /app/bibbl-stream /app/bibbl-stream
-COPY --from=go-builder /app/config.example.yaml /app/config.example.yaml
-
-# Expose ports
-EXPOSE 9444 6514
-
-# Set default environment variables for Docker deployment
+# Bind on all interfaces by default inside container
 ENV BIBBL_SERVER_HOST=0.0.0.0
-ENV BIBBL_SERVER_PORT=9444
+# Default port
+EXPOSE 9444
 
-# No health check for scratch image - will be handled externally
-# Health check would be: curl -k -f https://localhost:9444/api/v1/health
-
-# Default command
-CMD ["/app/bibbl-stream"]
-
-# Default command
-CMD ["./bibbl-stream"]
+ENTRYPOINT ["/bibbl-stream"]

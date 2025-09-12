@@ -12,7 +12,9 @@
     "isolatedModules": true,
     "noEmit": false,
     "jsx": "react-jsx",
-    "outDir": "./static"
+    "outDir": "./static",
+    "strict": true,
+    "forceConsistentCasingInFileNames": true
   },
   "include": ["src"]
 }

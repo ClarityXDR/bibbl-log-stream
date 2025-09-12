@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import './styles.css'
 import {
   Box,
   Paper,
@@ -22,6 +23,7 @@ import {
   Checkbox,
   Stack
 } from '@mui/material'
+import { SelectChangeEvent, TextFieldProps } from '@mui/material'
 import { apiClient } from '../utils/apiClient'
 import {
   AltRoute as AltRouteIcon,
@@ -49,7 +51,12 @@ function useFetcher<T>(url: string, intervalMs?: number) {
       const r = await fetch(url)
       if (!r.ok) throw new Error(`${r.status}`)
       const json = await r.json()
-      setData(json)
+      // Check if response has paginated format (items field) and extract the items array
+      if (json && typeof json === 'object' && 'items' in json && Array.isArray(json.items)) {
+        setData(json.items as T)
+      } else {
+        setData(json)
+      }
     } catch (e: any) {
       setError(e?.message || 'error')
     } finally {
@@ -141,8 +148,8 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
 
   // Load selection if user picked a route
   useEffect(() => {
-    if (!selectedRouteId || !routes.data) return
-    const r = routes.data.find(x => x.id === selectedRouteId)
+    if (!selectedRouteId || !routes.data || !Array.isArray(routes.data)) return
+    const r = routes.data.find((x: Route) => x.id === selectedRouteId)
     if (!r) return
     setRouteName(r.name)
     setPattern(r.filter || pattern)
@@ -153,7 +160,7 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
 
   // Sync pipeline builder when pipeline changes
   useEffect(() => {
-    const fns = pipelines.data?.find(p => p.id === pipeId)?.functions || []
+    const fns = Array.isArray(pipelines.data) ? pipelines.data.find((p: Pipeline) => p.id === pipeId)?.functions || [] : []
     setBuilderFns(fns.map(n => ({ name: n, enabled: true })))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pipeId, pipelines.data])
@@ -260,17 +267,17 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Select size="small" value={selectedRouteId} onChange={e => setSelectedRouteId(e.target.value as string)} displayEmpty sx={{ minWidth: 220 }}>
+              <Select size="small" value={selectedRouteId} onChange={(e: SelectChangeEvent<string>) => setSelectedRouteId(e.target.value as string)} displayEmpty sx={{ minWidth: 220 }}>
                 <MenuItem value=""><em>New route…</em></MenuItem>
-                {(routes.data || []).map(r => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
+                {(Array.isArray(routes.data) ? routes.data : []).map((r: Route) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
               </Select>
               <Tooltip title="Quick New"><IconButton onClick={quickAddRoute} color="primary"><AddCircleIcon /></IconButton></Tooltip>
               <Tooltip title="Refresh"><IconButton onClick={() => routes.refresh()} color="primary"><RefreshIcon /></IconButton></Tooltip>
             </Box>
-            <TextField fullWidth label="Route name" value={routeName} onChange={e => setRouteName(e.target.value)} />
+            <TextField fullWidth label="Route name" value={routeName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRouteName(e.target.value)} />
           </Box>
         )
-  case 1: // Filter
+      case 1: // Filter
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             {mode === 'visual' ? (
@@ -282,16 +289,16 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
                   <Chip color="warning" label="CEF only" onClick={() => setPattern('(?P<cef>CEF:.*)')} />
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Select size="small" value={libSel} onChange={e => { const v = e.target.value as string; setLibSel(v); loadLibFile(v) }} displayEmpty sx={{ minWidth: 220 }}>
+                  <Select size="small" value={libSel} onChange={(e: SelectChangeEvent<string>) => { const v = e.target.value as string; setLibSel(v); loadLibFile(v) }} displayEmpty sx={{ minWidth: 220 }}>
                     <MenuItem value=""><em>Sample library…</em></MenuItem>
                     {lib.map(i => <MenuItem key={i.name} value={i.name}>{i.name}</MenuItem>)}
                   </Select>
                   <IconButton onClick={loadLib}><RefreshIcon /></IconButton>
                 </Box>
-                <TextField label="Filter (regex or expression)" value={pattern} onChange={e => setPattern(e.target.value)} fullWidth />
+                <TextField label="Filter (regex or expression)" value={pattern} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPattern(e.target.value)} fullWidth />
               </>
             ) : (
-              <TextField label="Filter (raw)" value={pattern} onChange={e => setPattern(e.target.value)} fullWidth multiline minRows={6} />
+              <TextField label="Filter (raw)" value={pattern} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPattern(e.target.value)} fullWidth multiline minRows={6} />
             )}
             {!!err && <Typography variant="caption" color="error">{err}</Typography>}
             {evaluating && <LinearProgress sx={{ mt: .5 }} />}
@@ -307,9 +314,9 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
       case 3: // Pipeline
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Select fullWidth size="small" value={pipeId} onChange={e => setPipeId(e.target.value as string)} displayEmpty>
+            <Select fullWidth size="small" value={pipeId} onChange={(e: SelectChangeEvent<string>) => setPipeId(e.target.value as string)} displayEmpty>
               <MenuItem value=""><em>Choose pipeline</em></MenuItem>
-              {(pipelines.data || []).map(p => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+              {(Array.isArray(pipelines.data) ? pipelines.data : []).map(p => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
             </Select>
             {!pipeId ? <Chip label="Choose a pipeline to configure functions" /> : (
               <>
@@ -330,7 +337,7 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
                   <TextField
                     label="Functions (JSON)"
                     value={JSON.stringify(builderFns, null, 2)}
-                    onChange={e => {
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                       try {
                         const v = JSON.parse(e.target.value) as FnItem[]
                         if (Array.isArray(v)) setBuilderFns(v.map(x => ({ name: String(x.name), enabled: !!x.enabled })))
@@ -349,12 +356,12 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
   case 4: // Destination
         return (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Select fullWidth size="small" value={destId} onChange={e => setDestId(e.target.value as string)} displayEmpty>
+            <Select fullWidth size="small" value={destId} onChange={(e: SelectChangeEvent<string>) => setDestId(e.target.value as string)} displayEmpty>
               <MenuItem value=""><em>Choose destination</em></MenuItem>
-              {(dests.data || []).map(d => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
+              {(Array.isArray(dests.data) ? dests.data : []).map(d => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
             </Select>
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5 }}>
-              {destId ? <Chip label={(dests.data || []).find(d => d.id === destId)?.type || 'selected'} color="primary" variant="outlined" /> : <Chip label="select a destination" />}
+              {destId ? <Chip label={Array.isArray(dests.data) ? dests.data.find(d => d.id === destId)?.type || 'selected' : 'selected'} color="primary" variant="outlined" /> : <Chip label="select a destination" />}
             </Box>
           </Box>
         )
@@ -425,7 +432,7 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
             <TextField
               inputRef={beforeRef}
               value={before}
-              onChange={e => setBefore(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setBefore(e.target.value)}
               multiline minRows={8} fullWidth
               sx={{ '& textarea': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }, mb: 1 }}
             />
@@ -441,8 +448,8 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5, mt: .5 }}>
               <Chip icon={<AltRouteIcon />} label={routeName || 'unnamed'} />
               <Chip label={pattern ? `filter: ${pattern.slice(0, 24)}${pattern.length > 24 ? '…' : ''}` : 'no filter'} color="info" variant="outlined" />
-              <Chip icon={<RocketLaunchIcon />} label={(pipelines.data || []).find(p => p.id === pipeId)?.name || 'no pipeline'} color="success" variant="outlined" />
-              <Chip label={(dests.data || []).find(d => d.id === destId)?.name || 'no destination'} color="primary" variant="outlined" />
+              <Chip icon={<RocketLaunchIcon />} label={Array.isArray(pipelines.data) ? pipelines.data.find(p => p.id === pipeId)?.name || 'no pipeline' : 'no pipeline'} color="success" variant="outlined" />
+              <Chip label={Array.isArray(dests.data) ? dests.data.find(d => d.id === destId)?.name || 'no destination' : 'no destination'} color="primary" variant="outlined" />
             </Box>
           </Paper>
         </Box>
@@ -496,14 +503,14 @@ function GeoIPEnrichment({ pattern, before, onSuggestIp }: { pattern: string; be
         <Button variant="contained" component="label" size="small">Upload .mmdb<input hidden type="file" accept=".mmdb" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} /></Button>
       </Box>
       <Box sx={{ display:'flex', gap:1, alignItems:'center' }}>
-        <TextField size="small" label="IP (optional)" value={ip} onChange={e=>setIp(e.target.value)} sx={{ maxWidth: 260 }} />
+        <TextField size="small" label="IP (optional)" value={ip} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIp(e.target.value)} sx={{ maxWidth: 260 }} />
         <Button size="small" onClick={suggest}>Suggest from sample</Button>
         <Button variant="contained" size="small" onClick={preview} disabled={!status.loaded || busy}>{busy? 'Looking…':'Preview enrichment'}</Button>
       </Box>
       {geo && (
         <Paper variant="outlined" sx={{ p:1 }}>
           <Typography variant="caption">Preview</Typography>
-          <pre style={{ margin:0, fontFamily:'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}>{JSON.stringify(geo, null, 2)}</pre>
+          <pre className="code-preview">{JSON.stringify(geo, null, 2)}</pre>
         </Paper>
       )}
     </Box>

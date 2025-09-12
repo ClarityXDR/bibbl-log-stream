@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react'
+import './styles.css'
 import {
   Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Table, TableHead, TableRow, TableCell, TableBody, IconButton,
@@ -54,7 +55,7 @@ export default function RoutesConfig() {
         <Typography variant="h6">Routes</Typography>
         <Button variant="contained" startIcon={<Add />} onClick={() => { setEditing({ final: true }); setOpen(true); }}>Add Route</Button>
       </Box>
-  {error && <div style={{margin:'8px 0', color:'#b91c1c'}}>{error}</div>}
+  {error && <div className="error-text">{error}</div>}
   <Table>
         <TableHead>
           <TableRow>

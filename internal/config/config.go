@@ -10,24 +10,25 @@ import (
 )
 
 type TLSConfig struct {
-	CertFile   string
-	KeyFile    string
-	MinVersion string // e.g. "1.2", "1.3"
+	CertFile     string
+	KeyFile      string
+	MinVersion   string // e.g. "1.2", "1.3"
 	ClientCAFile string // optional path to CA bundle for client cert auth
 	ClientAuth   string // "", "require", "verify" (verify=RequireAnyClientCert, require=RequireAndVerifyClientCert)
 }
 
 type Config struct {
 	Server struct {
-		Host         string
-		Port         int
-		ReadTimeout  time.Duration
-		WriteTimeout time.Duration
-		TLS          TLSConfig
-		MaxRequestBytes int
-		RateLimitPerMin int // simple global limit (best-effort)
-			AuthToken string // placeholder static bearer token (future pluggable providers)
-		AuthTokens map[string][]string // map of bearer token -> roles (e.g. admin,write,read)
+		Host                  string
+		Port                  int
+		ReadTimeout           time.Duration
+		WriteTimeout          time.Duration
+		TLS                   TLSConfig
+		MaxRequestBytes       int
+		RateLimitPerMin       int                 // simple global limit (best-effort)
+		ContentSecurityPolicy string              // Configurable CSP header value
+		AuthToken             string              // placeholder static bearer token (future pluggable providers)
+		AuthTokens            map[string][]string // map of bearer token -> roles (e.g. admin,write,read)
 	}
 	Logging struct {
 		Level  string // debug|info|warn|error
@@ -71,7 +72,9 @@ func Load() *Config {
 	v.SetDefault("server.tls.key_file", "")
 	v.SetDefault("server.tls.min_version", "1.2")
 	v.SetDefault("server.max_request_bytes", 10*1024*1024) // 10MB
-	v.SetDefault("server.rate_limit_per_min", 600) // 10 rps average
+	v.SetDefault("server.rate_limit_per_min", 600)         // 10 rps average
+	// More permissive CSP for React: allow inline styles and necessary script sources
+	v.SetDefault("server.content_security_policy", "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' data:; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'")
 	v.SetDefault("server.auth_token", "")
 	v.SetDefault("server.auth_tokens", map[string]any{})
 
@@ -100,7 +103,9 @@ func Load() *Config {
 	cfg := &Config{}
 	cfg.Server.Host = v.GetString("server.host")
 	cfg.Server.Port = v.GetInt("server.port")
-	if cfg.Server.Port == 0 { cfg.Server.Port = 9444 }
+	if cfg.Server.Port == 0 {
+		cfg.Server.Port = 9444
+	}
 	cfg.Server.ReadTimeout = v.GetDuration("server.readtimeout")
 	cfg.Server.WriteTimeout = v.GetDuration("server.writetimeout")
 	cfg.Server.TLS.CertFile = v.GetString("server.tls.cert_file")
@@ -119,20 +124,35 @@ func Load() *Config {
 		for k, v := range m {
 			switch vv := v.(type) {
 			case string:
-				if strings.TrimSpace(vv) == "" { continue }
+				if strings.TrimSpace(vv) == "" {
+					continue
+				}
 				parts := strings.Split(vv, ",")
-				for i := range parts { parts[i] = strings.TrimSpace(parts[i]) }
+				for i := range parts {
+					parts[i] = strings.TrimSpace(parts[i])
+				}
 				ats[k] = parts
 			case []any:
 				var parts []string
-				for _, x := range vv { if s, ok := x.(string); ok { parts = append(parts, strings.TrimSpace(s)) } }
-				if len(parts) > 0 { ats[k] = parts }
+				for _, x := range vv {
+					if s, ok := x.(string); ok {
+						parts = append(parts, strings.TrimSpace(s))
+					}
+				}
+				if len(parts) > 0 {
+					ats[k] = parts
+				}
 			}
 		}
 	case map[string]string:
-		for k, v := range m { if v != "" { ats[k] = []string{v} } }
+		for k, v := range m {
+			if v != "" {
+				ats[k] = []string{v}
+			}
+		}
 	}
 	cfg.Server.AuthTokens = ats
+	cfg.Server.ContentSecurityPolicy = v.GetString("server.content_security_policy")
 	cfg.Logging.Level = v.GetString("logging.level")
 	cfg.Logging.Format = v.GetString("logging.format")
 
@@ -178,23 +198,41 @@ func (c *Config) SyslogAddr() string {
 
 // Validate performs static validation and returns a slice of error messages (empty if valid).
 func (c *Config) Validate() (errors []string, warnings []string) {
-	if c.Server.Port <= 0 || c.Server.Port > 65535 { errors = append(errors, "server.port must be 1-65535") }
-	if c.Server.MaxRequestBytes <= 0 || c.Server.MaxRequestBytes > 100*1024*1024 { errors = append(errors, "server.max_request_bytes out of range (1 .. 104857600)") }
+	if c.Server.Port <= 0 || c.Server.Port > 65535 {
+		errors = append(errors, "server.port must be 1-65535")
+	}
+	if c.Server.MaxRequestBytes <= 0 || c.Server.MaxRequestBytes > 100*1024*1024 {
+		errors = append(errors, "server.max_request_bytes out of range (1 .. 104857600)")
+	}
 	switch c.Server.TLS.MinVersion {
 	case "", "1.2", "1.3":
-	default: errors = append(errors, "server.tls.min_version must be 1.2 or 1.3")
+	default:
+		errors = append(errors, "server.tls.min_version must be 1.2 or 1.3")
 	}
-	if c.Server.TLS.ClientAuth != "" && c.Server.TLS.ClientAuth != "require" && c.Server.TLS.ClientAuth != "verify" { errors = append(errors, "server.tls.client_auth must be empty, 'require' or 'verify'") }
+	if c.Server.TLS.ClientAuth != "" && c.Server.TLS.ClientAuth != "require" && c.Server.TLS.ClientAuth != "verify" {
+		errors = append(errors, "server.tls.client_auth must be empty, 'require' or 'verify'")
+	}
 	switch strings.ToLower(c.Logging.Level) {
-	case "debug","info","warn","error":
-	default: errors = append(errors, "logging.level must be debug|info|warn|error")
+	case "debug", "info", "warn", "error":
+	default:
+		errors = append(errors, "logging.level must be debug|info|warn|error")
 	}
-	if c.Logging.Format != "text" && c.Logging.Format != "json" { errors = append(errors, "logging.format must be text|json") }
-	if c.Inputs.Syslog.Port < 0 || c.Inputs.Syslog.Port > 65535 { errors = append(errors, "inputs.syslog.port invalid") }
-	if t := c.Server.TLS.ClientAuth; t != "" && c.Server.TLS.ClientCAFile == "" { errors = append(errors, "server.tls.client_ca_file required when client_auth set") }
+	if c.Logging.Format != "text" && c.Logging.Format != "json" {
+		errors = append(errors, "logging.format must be text|json")
+	}
+	if c.Inputs.Syslog.Port < 0 || c.Inputs.Syslog.Port > 65535 {
+		errors = append(errors, "inputs.syslog.port invalid")
+	}
+	if t := c.Server.TLS.ClientAuth; t != "" && c.Server.TLS.ClientCAFile == "" {
+		errors = append(errors, "server.tls.client_ca_file required when client_auth set")
+	}
 	// warnings (do not block startup)
-	if c.Server.AuthToken == "" { warnings = append(warnings, "server.auth_token empty - API unprotected") }
-	if len(c.Server.AuthTokens) == 0 { warnings = append(warnings, "server.auth_tokens empty - RBAC disabled") }
+	if c.Server.AuthToken == "" {
+		warnings = append(warnings, "server.auth_token empty - API unprotected")
+	}
+	if len(c.Server.AuthTokens) == 0 {
+		warnings = append(warnings, "server.auth_tokens empty - RBAC disabled")
+	}
 	return
 }
 

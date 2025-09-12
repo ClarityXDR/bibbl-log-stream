@@ -1,6 +1,7 @@
 # Bibbl Log Stream - Portainer Deployment Guide
 
 This guide covers deploying Bibbl Log Stream using Portainer with the assigned configuration:
+
 - **IP Address**: 192.168.0.218
 - **Domain**: bibbl.clarityxdr.com
 
@@ -27,6 +28,7 @@ This guide covers deploying Bibbl Log Stream using Portainer with the assigned c
 3. **Stack Configuration**
 
    **Option A: Git Repository**
+
    ```
    Repository URL: https://github.com/ClarityXDR/bibbl-log-stream
    Reference: refs/heads/main
@@ -38,6 +40,7 @@ This guide covers deploying Bibbl Log Stream using Portainer with the assigned c
 
 4. **Environment Variables**
    Add these environment variables in Portainer:
+
    ```
    BIBBL_VERSION=0.1.0
    BIBBL_COMMIT=production
@@ -62,6 +65,7 @@ This guide covers deploying Bibbl Log Stream using Portainer with the assigned c
 ### Method 3: Manual Container Deployment
 
 1. **Build Image** (if not using pre-built)
+
    ```bash
    git clone https://github.com/ClarityXDR/bibbl-log-stream
    cd bibbl-log-stream
@@ -75,6 +79,7 @@ This guide covers deploying Bibbl Log Stream using Portainer with the assigned c
 ## Network Configuration
 
 ### Custom Network Setup
+
 The deployment requires a custom network with the specific IP range:
 
 1. **Create Network in Portainer**
@@ -90,16 +95,20 @@ The deployment requires a custom network with the specific IP range:
 ## SSL/TLS Configuration
 
 ### Auto-Generated Certificates (Default)
+
 - Bibbl Stream will automatically generate self-signed certificates
 - Certificates will include `bibbl.clarityxdr.com` in the SAN
 
 ### Custom Certificates (Recommended for Production)
+
 1. **Create certificates directory**
+
    ```bash
    mkdir -p ./certs
    ```
 
 2. **Add your certificates**
+
    ```
    ./certs/server.crt    # Server certificate
    ./certs/server.key    # Server private key
@@ -107,6 +116,7 @@ The deployment requires a custom network with the specific IP range:
    ```
 
 3. **Update environment variables**
+
    ```
    BIBBL_SERVER_TLS_CERT_FILE=/app/certs/server.crt
    BIBBL_SERVER_TLS_KEY_FILE=/app/certs/server.key
@@ -115,6 +125,7 @@ The deployment requires a custom network with the specific IP range:
 ## Configuration Options
 
 ### Environment Variables
+
 Key environment variables you can set in Portainer:
 
 ```bash
@@ -142,6 +153,7 @@ BIBBL_OUTPUTS_SENTINEL_SHARED_KEY=your-shared-key
 **Important**: The `BIBBL_TLS_EXTRA_HOSTS` environment variable ensures that the auto-generated TLS certificate includes the domain `bibbl.clarityxdr.com` and IP `192.168.0.218` in the Subject Alternative Name (SAN) field, making the certificate valid for both the domain and IP access.
 
 ### Volume Mounts
+
 Configure persistent storage in Portainer:
 
 - **Data**: `/app/data` → `bibbl-data` volume
@@ -152,19 +164,24 @@ Configure persistent storage in Portainer:
 ## Access and Verification
 
 ### Web Interface
+
 1. **HTTPS Access**
+
    ```
    https://bibbl.clarityxdr.com:9444
    https://192.168.0.218:9444
    ```
 
 2. **Health Check**
+
    ```
    https://bibbl.clarityxdr.com:9444/health
    ```
 
 ### Syslog Testing
+
 Test syslog input:
+
 ```bash
 # Using openssl for TLS syslog
 echo '<134>1 2024-01-01T12:00:00Z test-host bibbl-test - - Test message' | \
@@ -191,6 +208,7 @@ echo '<134>1 2024-01-01T12:00:00Z test-host bibbl-test - - Test message' | \
    - Test with `curl -k` to bypass certificate validation temporarily
 
 ### Logs and Monitoring
+
 - **Container logs**: Available in Portainer → Containers → bibbl-stream → Logs
 - **Application logs**: Stored in `/app/logs` volume
 - **Health status**: Monitor via health check endpoint
@@ -214,6 +232,7 @@ echo '<134>1 2024-01-01T12:00:00Z test-host bibbl-test - - Test message' | \
 After deployment, verify the service is working correctly:
 
 ### 1. Container Health
+
 ```bash
 # Check container status
 docker ps | grep bibbl-stream
@@ -226,6 +245,7 @@ docker logs bibbl-stream
 ```
 
 ### 2. Network Connectivity
+
 ```bash
 # Test from local machine
 curl -k https://192.168.0.218:9444/api/v1/health
@@ -235,6 +255,7 @@ curl -k https://bibbl.clarityxdr.com:9444/api/v1/health
 ```
 
 ### 3. TLS Certificate Verification
+
 ```bash
 # Check certificate includes correct domains
 echo | openssl s_client -connect bibbl.clarityxdr.com:9444 -servername bibbl.clarityxdr.com 2>/dev/null | openssl x509 -noout -text | grep -A 2 "Subject Alternative Name"
@@ -243,6 +264,7 @@ echo | openssl s_client -connect bibbl.clarityxdr.com:9444 -servername bibbl.cla
 ```
 
 ### 4. Syslog Testing
+
 ```bash
 # Test syslog input (if enabled)
 echo '<134>1 2024-01-01T12:00:00Z test-host bibbl-test - - Test message' | \
@@ -252,11 +274,13 @@ echo '<134>1 2024-01-01T12:00:00Z test-host bibbl-test - - Test message' | \
 ## Maintenance
 
 ### Updates
+
 1. Pull latest image: `docker pull bibbl-stream:latest`
 2. Recreate stack in Portainer
 3. Monitor health check after update
 
 ### Backup
+
 - Backup persistent volumes (`bibbl-data`, `bibbl-logs`)
 - Export stack configuration from Portainer
 - Backup custom certificates and configuration files

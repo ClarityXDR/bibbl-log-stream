@@ -1,0 +1,184 @@
+/* Component-specific styles */
+
+.code-preview {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.monospace-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.light-text {
+  margin: 0;
+  color: #e5e7eb;
+}
+
+/* Common utility styles */
+.no-margin-top {
+  margin-top: 0;
+}
+
+.error-text {
+  margin: 8px 0;
+  color: #b91c1c;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-column {
+  flex-direction: column;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.gap-8 {
+  gap: 8px;
+}
+
+.gap-12 {
+  gap: 12px;
+}
+
+.gap-16 {
+  gap: 16px;
+}
+
+.align-center {
+  align-items: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.width-100 {
+  width: 100%;
+}
+
+.max-width-160 {
+  max-width: 160px;
+}
+
+.max-width-180 {
+  max-width: 180px;
+}
+
+.max-width-1200 {
+  max-width: 1200px;
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+.overflow-auto {
+  overflow: auto;
+}
+
+.text-ellipsis {
+  text-overflow: ellipsis;
+}
+
+.grid-two-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.grid-equal-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.margin-top-4 {
+  margin-top: 4px;
+}
+
+.margin-top-8 {
+  margin-top: 8px;
+}
+
+.margin-top-12 {
+  margin-top: 12px;
+}
+
+.margin-top-18 {
+  margin-top: 18px;
+}
+
+.margin-bottom-6 {
+  margin-bottom: 6px;
+}
+
+.margin-negative-top-4 {
+  margin-top: -4px;
+}
+
+.margin-negative-top-6 {
+  margin-top: -6px;
+}
+
+.margin-special {
+  margin: 18px 0 6px;
+}
+
+.font-size-12 {
+  font-size: 12px;
+}
+
+.font-size-13 {
+  font-size: 13px;
+}
+
+.line-height-1-4 {
+  line-height: 1.4;
+}
+
+.background-danger {
+  background: #4b1d1d;
+}
+
+.white-space-pre-wrap {
+  white-space: pre-wrap;
+}
+
+.badge {
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.badge-info {
+  background: #3b82f6;
+}
+
+.badge-success {
+  background: #10b981;
+}
+
+.badge-warning {
+  background: #f59e0b;
+}
+
+.badge-error {
+  background: #ef4444;
+}
+
+.width-16 {
+  width: 16px;
+}
+
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.align-start {
+  align-items: start;
+}

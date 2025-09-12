@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react'
+import './styles.css'
 import {
   Box, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, FormControl, InputLabel, Grid,
@@ -487,7 +488,7 @@ function SourceDetailModal({source, onClose}:{source: Source|null; onClose: ()=>
           )}
         </Box>
         <Paper variant="outlined" sx={{p:1, maxHeight:400, overflow:'auto', bgcolor:'#0b1020'}} ref={logBoxRef}>
-          <pre style={{margin:0, color:'#e5e7eb'}}>
+          <pre className="light-text">
             {lines.map((l,i)=> <div key={i}>{l}</div>)}
           </pre>
         </Paper>

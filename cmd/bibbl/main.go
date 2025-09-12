@@ -13,6 +13,7 @@ import (
 
 	"bibbl/internal/api"
 	"bibbl/internal/config"
+	"bibbl/internal/metrics"
 	"bibbl/internal/platform/logger"
 	"bibbl/internal/version"
 	bibbltls "bibbl/pkg/tls"
@@ -61,7 +62,7 @@ func main() {
 	if cfg.Server.TLS.CertFile == "" || cfg.Server.TLS.KeyFile == "" {
 		// Base hostnames for certificate
 		hosts := []string{"localhost", "127.0.0.1", cfg.Server.Host}
-		
+
 		// Add any additional hosts from environment variable
 		if extraHosts := os.Getenv("BIBBL_TLS_EXTRA_HOSTS"); extraHosts != "" {
 			for _, host := range strings.Split(extraHosts, ",") {
@@ -71,15 +72,17 @@ func main() {
 				}
 			}
 		}
-		
+
 		cpath, kpath, err := bibbltls.EnsurePairExists(cfg.Server.TLS.CertFile, cfg.Server.TLS.KeyFile, hosts, 0)
 		if err != nil {
 			log.Printf("web tls self-signed generation failed: %v", err)
 		} else {
 			cfg.Server.TLS.CertFile = cpath
 			cfg.Server.TLS.KeyFile = kpath
-			if cfg.Server.TLS.MinVersion == "" { cfg.Server.TLS.MinVersion = "1.2" }
-			log.Printf("web tls self-signed cert generated: %s, key: %s (hosts: %v)", cpath, kpath, hosts)
+			if cfg.Server.TLS.MinVersion == "" {
+				cfg.Server.TLS.MinVersion = "1.2"
+			}
+			log.Printf("web tls self-signed cert generated: %s, key: %s", cpath, kpath)
 			if cfg.Server.Host != "127.0.0.1" && cfg.Server.Host != "localhost" {
 				log.Printf("WARNING: using auto-generated self-signed TLS cert on host %s - not recommended for production", cfg.Server.Host)
 			}
@@ -90,22 +93,39 @@ func main() {
 	if *syslogEnable {
 		cfg.Inputs.Syslog.Enabled = true
 	}
-	if *syslogHost != "" { cfg.Inputs.Syslog.Host = *syslogHost }
-	if *syslogPort > 0 { cfg.Inputs.Syslog.Port = *syslogPort }
-	if *syslogCert != "" { cfg.Inputs.Syslog.TLS.CertFile = *syslogCert }
-	if *syslogKey != "" { cfg.Inputs.Syslog.TLS.KeyFile = *syslogKey }
-	if *syslogMin != "" { cfg.Inputs.Syslog.TLS.MinVersion = *syslogMin }
+	if *syslogHost != "" {
+		cfg.Inputs.Syslog.Host = *syslogHost
+	}
+	if *syslogPort > 0 {
+		cfg.Inputs.Syslog.Port = *syslogPort
+	}
+	if *syslogCert != "" {
+		cfg.Inputs.Syslog.TLS.CertFile = *syslogCert
+	}
+	if *syslogKey != "" {
+		cfg.Inputs.Syslog.TLS.KeyFile = *syslogKey
+	}
+	if *syslogMin != "" {
+		cfg.Inputs.Syslog.TLS.MinVersion = *syslogMin
+	}
 
 	// Validate config early (separate errors and warnings)
 	if errs, warns := cfg.Validate(); len(errs) > 0 {
-		for _, e := range errs { fmt.Fprintf(os.Stderr, "config error: %s\n", e) }
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "config error: %s\n", e)
+		}
 		os.Exit(2)
 	} else if len(warns) > 0 {
-		for _, w := range warns { fmt.Fprintf(os.Stderr, "config warning: %s\n", w) }
+		for _, w := range warns {
+			fmt.Fprintf(os.Stderr, "config warning: %s\n", w)
+		}
 	}
 	// Initialize structured logger
 	logger.Init(logger.Config{Level: cfg.Logging.Level, Format: cfg.Logging.Format})
 	logger.Slog().Info("starting bibbl", "version", version.Version, "commit", version.Commit, "date", version.Date)
+
+	// Initialize Prometheus metrics
+	metrics.Init()
 
 	srv := api.NewServer(cfg)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -124,6 +144,8 @@ func main() {
 	logger.Slog().Info("shutdown signal received")
 	sdCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.ShutdownWithContext(sdCtx); err != nil { logger.Slog().Error("graceful shutdown failed", "err", err) }
+	if err := srv.ShutdownWithContext(sdCtx); err != nil {
+		logger.Slog().Error("graceful shutdown failed", "err", err)
+	}
 	logger.Slog().Info("shutdown complete")
 }

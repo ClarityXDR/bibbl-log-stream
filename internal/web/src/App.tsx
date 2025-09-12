@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import './components/styles.css'
 import SourcesConfig from './components/SourcesConfig'
 import TransformWorkbench from './components/TransformWorkbench'
 import DestinationsConfig from './components/DestinationsConfig'
@@ -107,9 +108,9 @@ export default function App() {
       {tab === 'home' && (
         <main className="home-grid">
           <section className="card span-4">
-            <h2 style={{marginTop:0}}>System</h2>
+            <h2 className="no-margin-top">System</h2>
             <div className="stats stats-tight">
-              <Stat label="Health" value={<span style={{color: statusColor}}>{startedOk ? 'Healthy' : 'Down'}</span>} />
+              <Stat label="Health" value={<span className={startedOk ? 'status-healthy' : 'status-down'}>{startedOk ? 'Healthy' : 'Down'}</span>} />
               <Stat label="Version" value={version.data?.version ?? '…'} />
               <Stat label="HTTP" value={info.data?.http_addr ?? '…'} />
               <Stat label="TLS" value={info.data ? (info.data.tls_enabled ? `Yes (>=${info.data.tls_min})` : 'No') : '…'} />
@@ -117,37 +118,37 @@ export default function App() {
             {(health.error || version.error || info.error) && (<div className="alert small">{(health.error || version.error || info.error)}</div>)}
           </section>
           <section className="card span-4">
-            <h2 style={{marginTop:0}}>Sources</h2>
+            <h2 className="no-margin-top">Sources</h2>
             <div className="mini-cards">
               <div className="mini"><div className="mini-label">Total</div><div className="mini-value">{sourcesSummary.total}</div></div>
               <div className="mini"><div className="mini-label">Enabled</div><div className="mini-value">{sourcesSummary.active}</div></div>
               <div className="mini"><div className="mini-label">Flowing</div><div className="mini-value">{sourcesSummary.flowing}</div></div>
             </div>
-            <p className="muted" style={{marginTop:12, fontSize:12}}>Flowing = emitted a log in the last poll interval.</p>
+            <p className="muted muted-text">Flowing = emitted a log in the last poll interval.</p>
             <button className="btn tiny secondary" onClick={()=>setTab('sources')}>Manage Sources →</button>
           </section>
           <section className="card span-4">
-            <h2 style={{marginTop:0}}>Throughput</h2>
-            <p className="muted" style={{marginTop:4}}>Event rate graph placeholder.</p>
+            <h2 className="no-margin-top">Throughput</h2>
+            <p className="muted muted-inline">Event rate graph placeholder.</p>
             <div className="sparkline-placeholder">Coming soon</div>
-            <ul className="links compact" style={{marginTop:12}}>
+            <ul className="links compact links-compact">
               <li><a href="/metrics" target="_blank" rel="noreferrer">Prometheus endpoint</a></li>
             </ul>
           </section>
           <section className="card span-8">
-            <h2 style={{marginTop:0}}>Recent Activity</h2>
+            <h2 className="no-margin-top">Recent Activity</h2>
             <LiveTailPreview />
           </section>
             <section className="card span-4">
-              <h2 style={{marginTop:0}}>Quick Links</h2>
+              <h2 className="no-margin-top">Quick Links</h2>
               <ul className="links compact">
                 <li><a href="/api/v1/health" target="_blank" rel="noreferrer">Health JSON</a></li>
                 <li><a href="/api/v1/version" target="_blank" rel="noreferrer">Version JSON</a></li>
                 <li><a href="/metrics" target="_blank" rel="noreferrer">Prometheus Metrics</a></li>
-                <li><a href="https://github.com" target="_blank" rel="noreferrer">Docs (placeholder)</a></li>
+                <li><a href="https://github.com" target="_blank" rel="noopener noreferrer">Docs (placeholder)</a></li>
               </ul>
-              <h3 style={{margin:'18px 0 6px'}}>About</h3>
-              <p style={{fontSize:13, lineHeight:1.4}}>Single binary includes inputs, processors, outputs & UI. Rebuild UI: <code>npm run build</code> then rebuild Go binary.</p>
+              <h3 className="links-section-title">About</h3>
+              <p className="about-text">Single binary includes inputs, processors, outputs & UI. Rebuild UI: <code>npm run build</code> then rebuild Go binary.</p>
             </section>
         </main>
       )}
@@ -204,7 +205,7 @@ function LiveTailPreview(){
     }
     fetchLines(); const id=setInterval(fetchLines, 4000); return ()=>{ stop=true; clearInterval(id) }
   },[sourceId])
-  if(!sourceId) return <div className="muted" style={{fontSize:12}}>No active source yet.</div>
+  if(!sourceId) return <div className="muted tail-preview-empty">No active source yet.</div>
   return <pre className="tail-box">{lines.slice(-15).join('\n')||'Waiting for logs...'}</pre>
 }
 
@@ -228,24 +229,24 @@ function AzurePage(){
   return (
     <main className="grid"><section className="card">
   <h2>Azure Automation</h2>
-  <p className="muted" style={{marginTop:-6}}>Quick helpers to create a Data Collection Endpoint (DCE) and Data Collection Rule (DCR) for Microsoft Sentinel. Provide values, then create resources via the API.</p>
+  <p className="muted azure-muted">Quick helpers to create a Data Collection Endpoint (DCE) and Data Collection Rule (DCR) for Microsoft Sentinel. Provide values, then create resources via the API.</p>
       <div className="form">
         <div className="row">
-          <label>Workspace ID</label>
-          <input value={workspaceId} onChange={e=>setWorkspaceId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+          <label htmlFor="workspace-id">Workspace ID</label>
+          <input id="workspace-id" value={workspaceId} onChange={e=>setWorkspaceId(e.target.value)} placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
         </div>
         <div className="row">
-          <label>Table Name</label>
-          <input value={tableName} onChange={e=>setTableName(e.target.value)} />
+          <label htmlFor="table-name">Table Name</label>
+          <input id="table-name" value={tableName} onChange={e=>setTableName(e.target.value)} placeholder="Enter table name" />
         </div>
         <div className="row">
-          <label>DCE Name</label>
-          <input value={dceName} onChange={e=>setDceName(e.target.value)} />
+          <label htmlFor="dce-name">DCE Name</label>
+          <input id="dce-name" value={dceName} onChange={e=>setDceName(e.target.value)} placeholder="Enter DCE name" />
           <button className="btn" onClick={()=>doCreate('dce')}>Create DCE</button>
         </div>
         <div className="row">
-          <label>DCR Name</label>
-          <input value={dcrName} onChange={e=>setDcrName(e.target.value)} />
+          <label htmlFor="dcr-name">DCR Name</label>
+          <input id="dcr-name" value={dcrName} onChange={e=>setDcrName(e.target.value)} placeholder="Enter DCR name" />
           <button className="btn" onClick={()=>doCreate('dcr')}>Create DCR</button>
         </div>
       </div>
@@ -314,27 +315,43 @@ function RegexPreview({initialSelected}: {initialSelected?: string}){
   return (
     <main className="grid"><section className="card">
   <h2>Filters</h2>
-      <p className="muted" style={{marginTop:-6}}>Tip: Use named capture groups like <code>(?P&lt;field&gt;...)</code>. Try pasting a captured syslog line from Sources ▶ eye and test your regex here.</p>
-      <div className="row" style={{gap:12, alignItems:'center'}}>
+      <p className="muted azure-muted">Tip: Use named capture groups like <code>(?P&lt;field&gt;...)</code>. Try pasting a captured syslog line from Sources ▶ eye and test your regex here.</p>
+      <div className="row row-flex-filter">
         <label>Pattern</label>
-        <input value={pattern} onChange={e=>setPattern(e.target.value)} style={{flex:1}} />
+        <input value={pattern} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPattern(e.target.value)} className="flex-1" placeholder="Enter regex pattern" />
         <button className="btn" onClick={run}>Run</button>
         <button className="btn secondary" onClick={()=>setPattern('(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)\\s+(?P<app>\\w+)\\s+-\\s+-\\s+demo\\s+message\\s+(?P<seq>\\d+)')}>Sample regex</button>
-        <div style={{width:16}} />
-        <label>Sample Library</label>
-        <select value={selected} onChange={e=>{ setSelected(e.target.value); loadFile(e.target.value) }}>
+        <div className="gap-spacer" />
+        <label htmlFor="sample-library">Sample Library</label>
+        <select id="sample-library" aria-label="Sample Library" title="Sample Library" value={selected} onChange={e=>{ setSelected(e.target.value); loadFile(e.target.value) }}>
           <option value="">— choose —</option>
           {library.map(i => <option key={i.name} value={i.name}>{i.name}</option>)}
         </select>
         <button className="btn secondary" onClick={loadLib}>Refresh</button>
       </div>
       {error && <div className="alert">{error}</div>}
-      <div className="grid" style={{gridTemplateColumns:'1fr 1fr', gap:12}}>
+      <div className="grid grid-two-col">
         <section className="card"><h3>Before</h3>
-          <textarea value={before} onChange={e=>setBefore(e.target.value)} rows={16} style={{width:'100%'}} />
+          <textarea 
+            value={before} 
+            onChange={e=>setBefore(e.target.value)} 
+            rows={16} 
+            className="full-width-textarea"
+            aria-label="Input text before transformation"
+            title="Input text before transformation"
+            placeholder="Enter text to transform"
+          />
         </section>
         <section className="card"><h3>After</h3>
-          <textarea value={after} readOnly rows={16} style={{width:'100%'}} />
+          <textarea 
+            value={after} 
+            readOnly 
+            rows={16} 
+            className="full-width-textarea"
+            aria-label="Output text after transformation"
+            title="Output text after transformation"
+            placeholder="Transformed output will appear here"
+          />
         </section>
       </div>
     </section></main>
@@ -343,29 +360,222 @@ function RegexPreview({initialSelected}: {initialSelected?: string}){
 
 function MetricsPage(){
   const [raw, setRaw] = useState<string>('')
+  const [parsedMetrics, setParsedMetrics] = useState<Record<string, any>>({})
   const [q, setQ] = useState<string>('')
   const [err, setErr] = useState<string>('')
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(true)
+  const [view, setView] = useState<'dashboard' | 'raw'>('dashboard')
+
+  const parseMetrics = (text: string) => {
+    const metrics: Record<string, any> = {}
+    const lines = text.split(/\r?\n/)
+    
+    for (const line of lines) {
+      if (line.startsWith('#') || !line.trim()) continue
+      
+      const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*(?:\{[^}]*\})?) ([\d.+-e]+)(?:\s+(\d+))?$/)
+      if (match) {
+        const [, nameWithLabels, value, timestamp] = match
+        const metricMatch = nameWithLabels.match(/^([^{]+)(.*)$/)
+        if (metricMatch) {
+          const [, name, labelsStr] = metricMatch
+          const category = name.split('_')[1] || 'other'
+          
+          if (!metrics[category]) metrics[category] = {}
+          if (!metrics[category][name]) metrics[category][name] = []
+          
+          metrics[category][name].push({
+            labels: labelsStr,
+            value: parseFloat(value),
+            timestamp: timestamp ? parseInt(timestamp) : Date.now()
+          })
+        }
+      }
+    }
+    return metrics
+  }
+
   const load = async () => {
     setErr('')
     try{
       const r = await fetch('/metrics', {headers:{'Accept':'text/plain'}})
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status}: ${r.statusText}`)
+      }
       const t = await r.text()
       setRaw(t)
-    }catch(e:any){ setErr(String(e?.message||e)) }
+      setParsedMetrics(parseMetrics(t))
+    }catch(e:any){ 
+      setErr(String(e?.message||e))
+      console.error('Metrics fetch error:', e)
+    }
   }
+
   useEffect(()=>{ load() }, [])
+  
+  useEffect(() => {
+    if (autoRefresh) {
+      const interval = setInterval(load, 10000) // Refresh every 10 seconds
+      return () => clearInterval(interval)
+    }
+  }, [autoRefresh])
+
   const lines = raw.split(/\r?\n/)
   const filtered = q ? lines.filter(l => l.toLowerCase().includes(q.toLowerCase())) : lines
-  return (
-    <main className="grid"><section className="card">
-  <h2>Log Events</h2>
-      <div className="row" style={{display:'flex', gap:8, alignItems:'center'}}>
-        <input placeholder="Filter (e.g., http_requests_total)" value={q} onChange={e=>setQ(e.target.value)} style={{flex:1}} />
-        <button className="btn" onClick={load}>Refresh</button>
-        <a className="btn secondary" href="/metrics" target="_blank" rel="noreferrer">Open raw</a>
+
+  const getLatestValue = (metricData: any[]) => {
+    if (!metricData.length) return 0
+    return metricData[metricData.length - 1].value
+  }
+
+  const formatNumber = (num: number) => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
+    return num.toFixed(num % 1 === 0 ? 0 : 2)
+  }
+
+  const renderDashboard = () => (
+    <div className="metrics-dashboard">
+      <div className="metrics-grid">
+        {/* HTTP Metrics */}
+        <div className="metric-category">
+          <h3>HTTP Performance</h3>
+          <div className="metric-cards">
+            {parsedMetrics.http && Object.entries(parsedMetrics.http).map(([name, data]: [string, any]) => (
+              <div key={name} className="metric-card">
+                <div className="metric-name">{name.replace('bibbl_http_', '').replace(/_/g, ' ')}</div>
+                <div className="metric-value">{formatNumber(getLatestValue(data))}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Buffer Metrics */}
+        {parsedMetrics.buffer && (
+          <div className="metric-category">
+            <h3>Buffer Status</h3>
+            <div className="metric-cards">
+              {Object.entries(parsedMetrics.buffer).map(([name, data]: [string, any]) => (
+                <div key={name} className="metric-card">
+                  <div className="metric-name">{name.replace('bibbl_buffer_', '').replace(/_/g, ' ')}</div>
+                  <div className="metric-value">{formatNumber(getLatestValue(data))}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Pipeline Metrics */}
+        {parsedMetrics.pipeline && (
+          <div className="metric-category">
+            <h3>Pipeline Performance</h3>
+            <div className="metric-cards">
+              {Object.entries(parsedMetrics.pipeline).map(([name, data]: [string, any]) => (
+                <div key={name} className="metric-card">
+                  <div className="metric-name">{name.replace('bibbl_pipeline_', '').replace(/_/g, ' ')}</div>
+                  <div className="metric-value">{formatNumber(getLatestValue(data))}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* System Metrics */}
+        {parsedMetrics.system && (
+          <div className="metric-category">
+            <h3>System Status</h3>
+            <div className="metric-cards">
+              {Object.entries(parsedMetrics.system).map(([name, data]: [string, any]) => (
+                <div key={name} className="metric-card">
+                  <div className="metric-name">{name.replace('bibbl_system_', '').replace(/_/g, ' ')}</div>
+                  <div className="metric-value">
+                    {name.includes('uptime') ? 
+                      Math.floor(getLatestValue(data) / 60) + 'm' : 
+                      formatNumber(getLatestValue(data))
+                    }
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Azure Metrics */}
+        {parsedMetrics.azure && (
+          <div className="metric-category">
+            <h3>Azure Integration</h3>
+            <div className="metric-cards">
+              {Object.entries(parsedMetrics.azure).map(([name, data]: [string, any]) => (
+                <div key={name} className="metric-card">
+                  <div className="metric-name">{name.replace('bibbl_azure_', '').replace(/_/g, ' ')}</div>
+                  <div className="metric-value">
+                    {name.includes('cost') ? 
+                      '$' + getLatestValue(data).toFixed(2) : 
+                      formatNumber(getLatestValue(data))
+                    }
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-      {err && <div className="alert">{err}</div>}
-      <pre className="pre" style={{whiteSpace:'pre-wrap'}}>{filtered.join('\n')}</pre>
-    </section></main>
+    </div>
+  )
+
+  return (
+    <main className="grid">
+      <section className="card">
+        <div className="metrics-header">
+          <h2>System Metrics</h2>
+          <div className="metrics-controls">
+            <div className="view-toggle">
+              <button 
+                className={`btn ${view === 'dashboard' ? 'primary' : 'secondary'}`}
+                onClick={() => setView('dashboard')}
+              >
+                Dashboard
+              </button>
+              <button 
+                className={`btn ${view === 'raw' ? 'primary' : 'secondary'}`}
+                onClick={() => setView('raw')}
+              >
+                Raw Metrics
+              </button>
+            </div>
+            <label className="checkbox-label">
+              <input 
+                type="checkbox" 
+                checked={autoRefresh} 
+                onChange={e => setAutoRefresh(e.target.checked)}
+              />
+              Auto-refresh (10s)
+            </label>
+            <button className="btn" onClick={load}>Refresh Now</button>
+            <a className="btn secondary" href="/metrics" target="_blank" rel="noreferrer">
+              Open Raw
+            </a>
+          </div>
+        </div>
+
+        {err && <div className="alert alert-error">{err}</div>}
+
+        {view === 'dashboard' ? (
+          renderDashboard()
+        ) : (
+          <div className="raw-metrics">
+            <div className="row row-flex">
+              <input 
+                placeholder="Filter metrics (e.g., http_requests_total)" 
+                value={q} 
+                onChange={e=>setQ(e.target.value)} 
+                className="flex-input" 
+              />
+            </div>
+            <pre className="pre pre-wrap">{filtered.join('\n')}</pre>
+          </div>
+        )}
+      </section>
+    </main>
   )
 }
