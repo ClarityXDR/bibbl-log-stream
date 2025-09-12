@@ -3,7 +3,7 @@
 # 2) Build Go binary embedding the built static assets
 # 3) Create minimal runtime image
 
-ARG GO_VERSION=1.22
+ARG GO_VERSION=1.24
 ARG NODE_VERSION=20
 
 # --- Web UI build ---
@@ -33,7 +33,8 @@ ARG VERSION=0.1.0
 ARG COMMIT=dev
 ARG DATE
 ENV CGO_ENABLED=0
-RUN go build -mod=vendor \
+RUN mkdir -p /out && \
+    go build -mod=vendor \
     -ldflags "-w -s -X 'bibbl/internal/version.Version=${VERSION}' -X 'bibbl/internal/version.Commit=${COMMIT}' -X 'bibbl/internal/version.Date=${DATE}'" \
     -o /out/bibbl-stream ./cmd/bibbl
 
