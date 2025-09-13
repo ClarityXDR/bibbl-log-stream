@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -21,6 +23,7 @@ import (
 
 func main() {
 	showVersion := flag.Bool("version", false, "Print version and exit")
+	healthCheck := flag.Bool("health", false, "Perform health check and exit")
 	cfg := config.Load()
 
 	// CLI overrides
@@ -40,6 +43,9 @@ func main() {
 	if *showVersion {
 		fmt.Printf("Bibbl Log Stream %s (commit %s, date %s)\n", version.Version, version.Commit, version.Date)
 		return
+	}
+	if *healthCheck {
+		os.Exit(performHealthCheck(cfg))
 	}
 
 	if *hostFlag != "" {
@@ -148,4 +154,45 @@ func main() {
 		logger.Slog().Error("graceful shutdown failed", "err", err)
 	}
 	logger.Slog().Info("shutdown complete")
+}
+
+// performHealthCheck performs a health check against the local server
+// Returns 0 on success, 1 on failure
+func performHealthCheck(cfg *config.Config) int {
+	addr := cfg.HTTPAddr()
+	
+	// Create HTTP client with TLS config for self-signed certs
+	client := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, // Skip cert verification for health checks
+			},
+		},
+	}
+	
+	// Try HTTPS first (most common case), then HTTP if that fails
+	schemes := []string{"https", "http"}
+	
+	for _, scheme := range schemes {
+		url := fmt.Sprintf("%s://%s/api/v1/health", scheme, addr)
+		
+		resp, err := client.Get(url)
+		if err != nil {
+			log.Printf("Health check %s failed: %v", scheme, err)
+			continue
+		}
+		defer resp.Body.Close()
+		
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("Health check %s failed: HTTP %d", scheme, resp.StatusCode)
+			continue
+		}
+		
+		log.Printf("Health check %s passed", scheme)
+		return 0
+	}
+	
+	log.Printf("Health check failed on all schemes")
+	return 1
 }

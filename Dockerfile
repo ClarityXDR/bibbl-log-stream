@@ -64,4 +64,8 @@ ENV BIBBL_SERVER_TLS_KEY_FILE=/certs/server.key
 # Default ports
 EXPOSE 443 6514
 
+# Health check using built-in command
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD ["/bibbl-stream", "-health"]
+
 ENTRYPOINT ["/bibbl-stream"]
