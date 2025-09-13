@@ -65,7 +65,7 @@ services:
 
 networks:
   clarity-lan:
-    driver: macvlan
+    external: true
 
 volumes:
   bibbl-data:
