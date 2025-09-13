@@ -38,15 +38,30 @@ RUN mkdir -p /out && \
     -ldflags "-w -s -X 'bibbl/internal/version.Version=${VERSION}' -X 'bibbl/internal/version.Commit=${COMMIT}' -X 'bibbl/internal/version.Date=${DATE}'" \
     -o /out/bibbl-stream ./cmd/bibbl
 
+# --- Cert generation ---
+FROM alpine:3.20 AS certs
+RUN apk add --no-cache openssl
+RUN mkdir -p /out && \
+        openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout /out/server.key -out /out/server.crt \
+            -days 365 \
+            -subj "/CN=bibbl.local" \
+            -addext "subjectAltName=DNS:localhost,DNS:bibbl.clarityxdr.com,IP:127.0.0.1,IP:0.0.0.0"
+
 # --- Runtime ---
 FROM alpine:3.20 AS runtime
 RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /
 COPY --from=builder /out/bibbl-stream /bibbl-stream
+COPY --from=certs /out/server.crt /certs/server.crt
+COPY --from=certs /out/server.key /certs/server.key
 
 # Bind on all interfaces by default inside container
 ENV BIBBL_SERVER_HOST=0.0.0.0
-# Default port
-EXPOSE 9444
+ENV BIBBL_SERVER_PORT=443
+ENV BIBBL_SERVER_TLS_CERT_FILE=/certs/server.crt
+ENV BIBBL_SERVER_TLS_KEY_FILE=/certs/server.key
+# Default ports
+EXPOSE 443 6514
 
 ENTRYPOINT ["/bibbl-stream"]
