@@ -2,7 +2,6 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import './styles.css'
-import './favicon.svg'
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material'
 
 const theme = createTheme({
