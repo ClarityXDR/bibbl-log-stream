@@ -882,10 +882,111 @@ func NewServer(cfg *config.Config) *Server {
 		}
 	}
 
-	_ = s3VersaDestID      // Reserved for route creation
-	_ = adlsPaloAltoDestID // Reserved for route creation
-	_ = s3PaloAltoDestID   // Reserved for route creation
-	_ = adlsVersaDestID    // Reserved for route creation
+	// 3f) Create example routes for the parser pipelines and full-stream destinations
+	// These routes demonstrate the routing patterns - users can enable/modify them
+	fmt.Println("DEBUG: Creating example routes for parsers and destinations...")
+
+	// Get pipeline IDs for routes
+	var versaPipeID, paloAltoPipeID string
+	for _, p := range srv.pipeline.GetPipelines() {
+		if p.Name == "Versa SD-WAN Parser" {
+			versaPipeID = p.ID
+		} else if p.Name == "Palo Alto NGFW Parser" {
+			paloAltoPipeID = p.ID
+		}
+	}
+
+	// Example Route 1: Versa Critical to Sentinel
+	if versaPipeID != "" && criticalAlertDestID != "" {
+		checkAndCreateRoute := func(name, filter, pipeID, destID string, final bool) {
+			exists := false
+			for _, r := range srv.pipeline.GetRoutes() {
+				if r.Name == name {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				_, _ = srv.pipeline.CreateRoute(name, filter, pipeID, destID, final)
+				fmt.Printf("DEBUG: Created route: %s\n", name)
+			}
+		}
+
+		checkAndCreateRoute(
+			"Example: Versa Critical → Sentinel",
+			`event.severity === "Critical" || event.severity === "critical"`,
+			versaPipeID,
+			criticalAlertDestID,
+			false, // Don't stop - allow other routes to process
+		)
+	}
+
+	// Example Route 2: Palo Alto High to Sentinel
+	if paloAltoPipeID != "" && highAlertDestID != "" {
+		exists := false
+		for _, r := range srv.pipeline.GetRoutes() {
+			if r.Name == "Example: Palo Alto High → Sentinel" {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			_, _ = srv.pipeline.CreateRoute(
+				"Example: Palo Alto High → Sentinel",
+				`event.threat_severity === "high" || (event.severity_level_d >= 6 && event.severity_level_d <= 8)`,
+				paloAltoPipeID,
+				highAlertDestID,
+				false,
+			)
+			fmt.Println("DEBUG: Created route: Example: Palo Alto High → Sentinel")
+		}
+	}
+
+	// Example Route 3: Versa Full Stream to S3
+	if versaPipeID != "" && s3VersaDestID != "" {
+		exists := false
+		for _, r := range srv.pipeline.GetRoutes() {
+			if r.Name == "Example: Versa Full → S3" {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			_, _ = srv.pipeline.CreateRoute(
+				"Example: Versa Full → S3",
+				"true", // All events
+				versaPipeID,
+				s3VersaDestID,
+				false,
+			)
+			fmt.Println("DEBUG: Created route: Example: Versa Full → S3")
+		}
+	}
+
+	// Example Route 4: Palo Alto Full Stream to ADLS
+	if paloAltoPipeID != "" && adlsPaloAltoDestID != "" {
+		exists := false
+		for _, r := range srv.pipeline.GetRoutes() {
+			if r.Name == "Example: Palo Alto Full → ADLS" {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			_, _ = srv.pipeline.CreateRoute(
+				"Example: Palo Alto Full → ADLS",
+				"true", // All events
+				paloAltoPipeID,
+				adlsPaloAltoDestID,
+				false,
+			)
+			fmt.Println("DEBUG: Created route: Example: Palo Alto Full → ADLS")
+		}
+	}
+
+	_ = s3PaloAltoDestID  // Reserved for additional routes
+	_ = adlsVersaDestID   // Reserved for additional routes
+	_ = mediumAlertDestID // Reserved for additional routes
 
 	// 4) Default route to sentinel via passthrough (create only if absent)
 	if passthruID != "" && sentID != "" {
