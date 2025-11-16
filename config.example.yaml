@@ -3,9 +3,21 @@ server:
   port: 9444
   readtimeout: 15s
   writetimeout: 15s
+  max_request_bytes: 10485760
+  rate_limit_per_min: 600
   # Content Security Policy header for React UI compatibility
   # More restrictive CSP: "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
   content_security_policy: "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' data:; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'self'"
+  security_headers:
+    hsts:
+      enabled: true
+      max_age: 63072000
+      include_subdomains: true
+      preload: false
+    permissions_policy: "geolocation=(); microphone=(); camera=()"
+    coop: "same-origin"
+    coep: "require-corp"
+    corp: "same-origin"
   tls:
     cert_file: ""
     key_file: ""
@@ -16,10 +28,26 @@ inputs:
     enabled: false
     host: 0.0.0.0
     port: 6514
+    # Connection management
+    allow_list: []  # IP/CIDR allow-list (empty = allow all). Example: ["192.168.0.0/24", "10.0.0.5"]
+    idle_timeout: 5m  # drop idle connections after this duration (0 = no timeout)
+    read_buffer_size: 65536  # per-connection buffer in bytes
+    max_connections: 1000  # concurrent connection limit (0 = unlimited)
+    verbose_logging: false  # enable detailed connection logging for troubleshooting Versa
     tls:
       cert_file: ""
       key_file: ""
       min_version: "1.2"
+      cipher_suites: []  # optional: explicit TLS cipher names (empty = Go defaults)
+      auto_cert:
+        enabled: true
+        hosts:
+          - bibbl.local
+        valid_days: 365
+        renew_before_days: 30
+        output_dir: ./certs/syslog
+        common_name: "Bibbl Syslog AutoCert"
+        # Share the generated .crt/.pem files with Versa SD-WAN firewalls for Syslog over TLS
   akamai_ds2:
     enabled: false # set true to enable default Akamai DataStream 2 polling source
     host: "example.luna.akamaiapis.net" # Akamai API base host (no protocol)

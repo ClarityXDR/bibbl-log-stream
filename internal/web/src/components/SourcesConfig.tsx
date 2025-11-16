@@ -7,7 +7,7 @@ import {
   Paper, Typography, Chip
 } from '@mui/material';
 import { SelectChangeEvent } from '@mui/material/Select';
-import { Add, Edit, Delete, PlayArrow, Stop, Visibility, Download, Cloud, Speed, Queue } from '@mui/icons-material';
+import { Add, Edit, Delete, PlayArrow, Stop, Visibility, Download, Cloud, Speed, Queue, Security } from '@mui/icons-material';
 import AkamaiWorkbench from './AkamaiWorkbench';
 import LoadTestWorkbench from './LoadTestWorkbench';
 import { apiClient } from '../utils/apiClient';
@@ -76,6 +76,23 @@ export default function SourcesConfig() {
       } catch (error) {
         console.error('Failed to delete source:', error);
       }
+    }
+  };
+
+  const handleDownloadVersaCerts = async () => {
+    try {
+      const response = await apiClient.get('/api/v1/syslog/certs/bundle', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', 'bibbl-versa-certs.zip');
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download Versa certificates:', error);
+      alert('Failed to download certificates. Make sure the syslog source is configured with TLS.');
     }
   };
 
@@ -356,6 +373,11 @@ export default function SourcesConfig() {
                 <IconButton onClick={() => setDetailFor(source)}>
                   <Visibility />
                 </IconButton>
+                {source.type === 'syslog' && (
+                  <IconButton onClick={handleDownloadVersaCerts} title="Download Versa SD-WAN TLS Certificates">
+                    <Security />
+                  </IconButton>
+                )}
                 {source.type === 'akamai_ds2' && (
                   <IconButton onClick={()=> setAkamaiFor(source)} title="Akamai Tool Workbench">
                     <Cloud />

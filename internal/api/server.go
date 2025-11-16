@@ -318,7 +318,7 @@ func NewServer(cfg *config.Config) *Server {
 	app.Get("/ready", func(c *fiber.Ctx) error { return c.SendStatus(http.StatusOK) })
 	app.Get("/live", func(c *fiber.Ctx) error { return c.SendStatus(http.StatusOK) })
 
-	// Minimal security headers (can be expanded later)
+	// Security headers and isolation policies (configurable via server.security_headers)
 	app.Use(func(c *fiber.Ctx) error {
 		c.Set("X-Content-Type-Options", "nosniff")
 		c.Set("X-Frame-Options", "DENY")
@@ -326,6 +326,32 @@ func NewServer(cfg *config.Config) *Server {
 		c.Set("Referrer-Policy", "no-referrer")
 		// CSP configurable for React compatibility: allows inline styles and necessary scripts
 		c.Set("Content-Security-Policy", cfg.Server.ContentSecurityPolicy)
+		if cfg.Server.SecurityHeaders.HSTS.Enabled && cfg.TLSConfigured() {
+			maxAge := cfg.Server.SecurityHeaders.HSTS.MaxAge
+			if maxAge <= 0 {
+				maxAge = 63072000
+			}
+			parts := []string{fmt.Sprintf("max-age=%d", maxAge)}
+			if cfg.Server.SecurityHeaders.HSTS.IncludeSubdomains {
+				parts = append(parts, "includeSubDomains")
+			}
+			if cfg.Server.SecurityHeaders.HSTS.Preload {
+				parts = append(parts, "preload")
+			}
+			c.Set("Strict-Transport-Security", strings.Join(parts, "; "))
+		}
+		if pp := strings.TrimSpace(cfg.Server.SecurityHeaders.PermissionsPolicy); pp != "" {
+			c.Set("Permissions-Policy", pp)
+		}
+		if coop := strings.TrimSpace(cfg.Server.SecurityHeaders.COOP); coop != "" {
+			c.Set("Cross-Origin-Opener-Policy", coop)
+		}
+		if coep := strings.TrimSpace(cfg.Server.SecurityHeaders.COEP); coep != "" {
+			c.Set("Cross-Origin-Embedder-Policy", coep)
+		}
+		if corp := strings.TrimSpace(cfg.Server.SecurityHeaders.CORP); corp != "" {
+			c.Set("Cross-Origin-Resource-Policy", corp)
+		}
 		return c.Next()
 	})
 
@@ -397,6 +423,7 @@ func NewServer(cfg *config.Config) *Server {
 	WorkerRegistrar = srv.RegisterWorker
 	// Build pipeline engine with hub and enrichment hooks
 	base := NewMemoryEngine()
+	fmt.Printf("DEBUG: Base engine created, pipelines: %d\n", len(base.GetPipelines()))
 	// Geo hook
 	geoHook := func(ip string) (map[string]interface{}, bool) {
 		srv.geoMu.RLock()
@@ -592,7 +619,9 @@ func NewServer(cfg *config.Config) *Server {
 		}
 	}
 	// 2) Passthrough pipeline
-	_, _ = srv.pipeline.CreatePipeline("Passthrough", "No-op pipeline", []string{})
+	fmt.Printf("DEBUG: Before Passthrough - pipelines: %d\n", len(srv.pipeline.GetPipelines()))
+	passthroughPipe, _ := srv.pipeline.CreatePipeline("Passthrough", "No-op pipeline", []string{})
+	fmt.Printf("DEBUG: Passthrough created: %+v\n", passthroughPipe)
 	var passthruID string
 	for _, p := range srv.pipeline.GetPipelines() {
 		if p.Name == "Passthrough" {
@@ -600,6 +629,51 @@ func NewServer(cfg *config.Config) *Server {
 			break
 		}
 	}
+	fmt.Printf("DEBUG: After Passthrough - pipelines: %d\n", len(srv.pipeline.GetPipelines()))
+
+	// 2b) Versa SD-WAN Parser pipeline
+	fmt.Printf("DEBUG: Before Versa - pipelines: %d\n", len(srv.pipeline.GetPipelines()))
+	versaPipe, err := srv.pipeline.CreatePipeline("Versa SD-WAN Parser", "Parse Versa Networks SD-WAN syslog (KVP format)", []string{"Parse Versa KVP"})
+	if err != nil {
+		fmt.Printf("DEBUG: Error creating Versa parser pipeline: %v\n", err)
+	} else {
+		fmt.Printf("DEBUG: Versa pipeline created: %+v\n", versaPipe)
+	}
+	fmt.Printf("DEBUG: After Versa - pipelines: %d\n", len(srv.pipeline.GetPipelines()))
+	_ = versaPipe // Reserved for future route creation
+
+	// 2c) Palo Alto NGFW Parser pipeline
+	fmt.Printf("DEBUG: Before Palo Alto - pipelines: %d\n", len(srv.pipeline.GetPipelines()))
+	paloAltoPipe, err := srv.pipeline.CreatePipeline("Palo Alto NGFW Parser", "Parse Palo Alto Networks NGFW syslog (CSV format)", []string{"Parse Palo Alto CSV"})
+	if err != nil {
+		fmt.Printf("DEBUG: Error creating Palo Alto parser pipeline: %v\n", err)
+	} else {
+		fmt.Printf("DEBUG: Palo Alto pipeline created: %+v\n", paloAltoPipe)
+	}
+	fmt.Printf("DEBUG: After Palo Alto - pipelines: %d\n", len(srv.pipeline.GetPipelines()))
+	_ = paloAltoPipe // Reserved for future route creation
+
+	// 2d) Example severity-based routing pipelines (users can enable these routes)
+	// These routes demonstrate how to split traffic by severity to different destinations
+	// Versa Critical Route: severity="Critical"
+	fmt.Println("DEBUG: Creating example severity routes...")
+	versaCritical := `event.severity === "Critical" || event.severity === "critical"`
+	versaHigh := `event.severity === "High" || event.severity === "high"`
+	versaMedium := `event.severity === "Medium" || event.severity === "medium" || event.severity === "Warning"`
+
+	// Palo Alto severity patterns
+	paloAltoCritical := `event.threat_severity === "critical" || event.severity_level_d > 8`
+	paloAltoHigh := `event.threat_severity === "high" || (event.severity_level_d >= 6 && event.severity_level_d <= 8)`
+	paloAltoMedium := `event.threat_severity === "medium" || (event.severity_level_d >= 3 && event.severity_level_d <= 5)`
+
+	// Store these filter expressions for later use (commented out by default)
+	_ = versaCritical
+	_ = versaHigh
+	_ = versaMedium
+	_ = paloAltoCritical
+	_ = paloAltoHigh
+	_ = paloAltoMedium
+
 	// 3) Sentinel Data Lake destination (idempotent create)
 	_, _ = srv.pipeline.CreateDestination("Microsoft Sentinel Data Lake", "sentinel", map[string]interface{}{
 		"tableName": "Custom_BibblLogs_CL",
@@ -651,6 +725,167 @@ func NewServer(cfg *config.Config) *Server {
 			break
 		}
 	}
+
+	// 3d) Azure Log Analytics Workspace destinations for severity-based routing
+	// These can be configured with your Workspace ID and Shared Key via the UI
+	// Critical Alerts - Fast flushing, smaller batches
+	_, _ = srv.pipeline.CreateDestination("Sentinel Critical Alerts", "azure_loganalytics", map[string]interface{}{
+		"workspaceID":      "", // Configure via UI
+		"sharedKey":        "", // Configure via UI
+		"logType":          "CriticalSecurityAlerts",
+		"resourceGroup":    "",
+		"batchMaxEvents":   250,
+		"batchMaxBytes":    524288, // 512KB
+		"flushIntervalSec": 5,      // 5 second flush for critical
+		"concurrency":      3,
+		"maxRetries":       5,
+		"retryDelaySec":    2,
+	})
+	var criticalAlertDestID string
+	for _, d := range srv.pipeline.GetDestinations() {
+		if d.Name == "Sentinel Critical Alerts" {
+			criticalAlertDestID = d.ID
+			break
+		}
+	}
+
+	// High Priority Alerts - Balanced performance
+	_, _ = srv.pipeline.CreateDestination("Sentinel High Priority", "azure_loganalytics", map[string]interface{}{
+		"workspaceID":      "", // Configure via UI
+		"sharedKey":        "", // Configure via UI
+		"logType":          "HighPriorityAlerts",
+		"resourceGroup":    "",
+		"batchMaxEvents":   500,
+		"batchMaxBytes":    1048576, // 1MB
+		"flushIntervalSec": 10,
+		"concurrency":      2,
+		"maxRetries":       3,
+		"retryDelaySec":    2,
+	})
+	var highAlertDestID string
+	for _, d := range srv.pipeline.GetDestinations() {
+		if d.Name == "Sentinel High Priority" {
+			highAlertDestID = d.ID
+			break
+		}
+	}
+
+	// Medium/Warning Alerts - Cost-optimized batching
+	_, _ = srv.pipeline.CreateDestination("Sentinel Medium Alerts", "azure_loganalytics", map[string]interface{}{
+		"workspaceID":      "", // Configure via UI
+		"sharedKey":        "", // Configure via UI
+		"logType":          "MediumPriorityAlerts",
+		"resourceGroup":    "",
+		"batchMaxEvents":   1000,
+		"batchMaxBytes":    2097152, // 2MB
+		"flushIntervalSec": 20,
+		"concurrency":      2,
+		"maxRetries":       3,
+		"retryDelaySec":    3,
+	})
+	var mediumAlertDestID string
+	for _, d := range srv.pipeline.GetDestinations() {
+		if d.Name == "Sentinel Medium Alerts" {
+			mediumAlertDestID = d.ID
+			break
+		}
+	}
+	_ = criticalAlertDestID // Reserved for future route creation
+	_ = highAlertDestID     // Reserved for future route creation
+	_ = mediumAlertDestID   // Reserved for future route creation
+
+	// 3e) Full-stream archive destinations (S3 for Versa, ADLS for Palo Alto)
+	// These capture ALL events from each parser for compliance/replay scenarios
+	fmt.Println("DEBUG: Creating full-stream archive destinations...")
+
+	// S3 destination for Versa SD-WAN full stream
+	_, _ = srv.pipeline.CreateDestination("S3 Versa Full Stream", "s3", map[string]interface{}{
+		"bucket":           "", // Configure via UI
+		"region":           "us-east-1",
+		"prefix":           "versa/raw/",
+		"pathTemplate":     "versa/raw/year=${yyyy}/month=${MM}/day=${dd}/hour=${HH}/versa-${mm}-${ss}.jsonl.gz",
+		"compression":      "gzip",
+		"batchMaxEvents":   5000,
+		"batchMaxBytes":    10485760, // 10MB
+		"flushIntervalSec": 60,       // 1 minute
+		"concurrency":      3,
+	})
+	var s3VersaDestID string
+	for _, d := range srv.pipeline.GetDestinations() {
+		if d.Name == "S3 Versa Full Stream" {
+			s3VersaDestID = d.ID
+			break
+		}
+	}
+
+	// ADLS destination for Palo Alto NGFW full stream
+	_, _ = srv.pipeline.CreateDestination("ADLS Palo Alto Full Stream", "azure_datalake", map[string]interface{}{
+		"storageAccount":   "", // Configure via UI
+		"filesystem":       "security-logs",
+		"directory":        "paloalto/raw/",
+		"pathTemplate":     "paloalto/raw/year=${yyyy}/month=${MM}/day=${dd}/hour=${HH}/paloalto-${mm}-${ss}.jsonl.gz",
+		"format":           "jsonl",
+		"compression":      "gzip",
+		"batchMaxEvents":   5000,
+		"batchMaxBytes":    10485760, // 10MB
+		"flushIntervalSec": 60,       // 1 minute
+		"concurrency":      3,
+		"maxOpenFiles":     2,
+	})
+	var adlsPaloAltoDestID string
+	for _, d := range srv.pipeline.GetDestinations() {
+		if d.Name == "ADLS Palo Alto Full Stream" {
+			adlsPaloAltoDestID = d.ID
+			break
+		}
+	}
+
+	// S3 destination for Palo Alto (alternative to ADLS)
+	_, _ = srv.pipeline.CreateDestination("S3 Palo Alto Full Stream", "s3", map[string]interface{}{
+		"bucket":           "", // Configure via UI
+		"region":           "us-east-1",
+		"prefix":           "paloalto/raw/",
+		"pathTemplate":     "paloalto/raw/year=${yyyy}/month=${MM}/day=${dd}/hour=${HH}/paloalto-${mm}-${ss}.jsonl.gz",
+		"compression":      "gzip",
+		"batchMaxEvents":   5000,
+		"batchMaxBytes":    10485760, // 10MB
+		"flushIntervalSec": 60,       // 1 minute
+		"concurrency":      3,
+	})
+	var s3PaloAltoDestID string
+	for _, d := range srv.pipeline.GetDestinations() {
+		if d.Name == "S3 Palo Alto Full Stream" {
+			s3PaloAltoDestID = d.ID
+			break
+		}
+	}
+
+	// ADLS destination for Versa (alternative to S3)
+	_, _ = srv.pipeline.CreateDestination("ADLS Versa Full Stream", "azure_datalake", map[string]interface{}{
+		"storageAccount":   "", // Configure via UI
+		"filesystem":       "security-logs",
+		"directory":        "versa/raw/",
+		"pathTemplate":     "versa/raw/year=${yyyy}/month=${MM}/day=${dd}/hour=${HH}/versa-${mm}-${ss}.jsonl.gz",
+		"format":           "jsonl",
+		"compression":      "gzip",
+		"batchMaxEvents":   5000,
+		"batchMaxBytes":    10485760, // 10MB
+		"flushIntervalSec": 60,       // 1 minute
+		"concurrency":      3,
+		"maxOpenFiles":     2,
+	})
+	var adlsVersaDestID string
+	for _, d := range srv.pipeline.GetDestinations() {
+		if d.Name == "ADLS Versa Full Stream" {
+			adlsVersaDestID = d.ID
+			break
+		}
+	}
+
+	_ = s3VersaDestID      // Reserved for route creation
+	_ = adlsPaloAltoDestID // Reserved for route creation
+	_ = s3PaloAltoDestID   // Reserved for route creation
+	_ = adlsVersaDestID    // Reserved for route creation
 
 	// 4) Default route to sentinel via passthrough (create only if absent)
 	if passthruID != "" && sentID != "" {
@@ -894,6 +1129,11 @@ func (s *Server) RegisterRoutes(router *mux.Router) {
 	// Library for preview/testing
 	v1.HandleFunc("/library", s.handleLibraryList).Methods("GET")
 	v1.HandleFunc("/library/{name}", s.handleLibraryRead).Methods("GET")
+
+	// Syslog TLS certificates export (for Versa SD-WAN integration)
+	v1.HandleFunc("/syslog/certs", s.handleSyslogCertsList).Methods("GET")
+	v1.HandleFunc("/syslog/certs/download", s.handleSyslogCertDownload).Methods("GET")
+	v1.HandleFunc("/syslog/certs/bundle", s.handleSyslogCertBundle).Methods("GET")
 
 	// Azure helpers: auth + provisioning (stubs for now)
 	azure := v1.PathPrefix("/azure").Subrouter()

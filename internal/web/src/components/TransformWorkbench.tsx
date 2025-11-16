@@ -291,7 +291,7 @@ export default function TransformWorkbench({filtersInitialSelected}: {filtersIni
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Select size="small" value={libSel} onChange={(e: SelectChangeEvent<string>) => { const v = e.target.value as string; setLibSel(v); loadLibFile(v) }} displayEmpty sx={{ minWidth: 220 }}>
                     <MenuItem value=""><em>Sample library…</em></MenuItem>
-                    {lib.map(i => <MenuItem key={i.name} value={i.name}>{i.name}</MenuItem>)}
+                    {(Array.isArray(lib) ? lib : []).map(i => <MenuItem key={i.name} value={i.name}>{i.name}</MenuItem>)}
                   </Select>
                   <IconButton onClick={loadLib}><RefreshIcon /></IconButton>
                 </Box>

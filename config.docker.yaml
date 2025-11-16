@@ -9,8 +9,19 @@ server:
   writetimeout: 30s
   max_request_bytes: 52428800  # 50MB for large log batches
   rate_limit_per_min: 1200     # 20 rps average
+  auth_token: "bibbl-admin-token-change-me"
+  security_headers:
+    hsts:
+      enabled: true
+      max_age: 63072000
+      include_subdomains: true
+      preload: false
+    permissions_policy: "geolocation=(); microphone=(); camera=()"
+    coop: "same-origin"
+    coep: "require-corp"
+    corp: "same-origin"
   tls:
-    # Auto-generated certificates will include bibbl.clarityxdr.com
+    # Auto-generated certificates will include bibbl.clarityxdr.com and asm.clarityxdr.com
     cert_file: ""  # Leave empty for auto-generation
     key_file: ""   # Leave empty for auto-generation
     min_version: "1.2"
@@ -27,10 +38,27 @@ inputs:
     enabled: true
     host: 0.0.0.0
     port: 6514
+    # Versa SD-WAN Connection Controls
+    allow_list: []  # Add your Versa appliance IPs/CIDRs here for security
+    idle_timeout: 10m
+    read_buffer_size: 65536
+    max_connections: 500
+    verbose_logging: true  # Enable for initial Versa integration troubleshooting
     tls:
-      cert_file: ""  # Will reuse server certs
+      cert_file: ""  # Auto-generated
       key_file: ""
       min_version: "1.2"
+      cipher_suites: []  # Leave empty for broad Versa compatibility
+      auto_cert:
+        enabled: true
+        hosts:
+          - asm.clarityxdr.com
+          - bibbl.clarityxdr.com
+          - 192.168.0.217
+        valid_days: 365
+        renew_before_days: 45
+        output_dir: ./certs/syslog
+        common_name: "Bibbl Syslog AutoCert"
       
   # Akamai DataStream 2 (configure via environment variables)
   akamai_ds2:

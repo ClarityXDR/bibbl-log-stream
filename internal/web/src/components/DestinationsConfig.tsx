@@ -11,7 +11,7 @@ import { apiClient } from '../utils/apiClient';
 interface Destination {
   id: string;
   name: string;
-  type: 'sentinel' | 'splunk' | 's3' | 'azure_blob' | 'elasticsearch' | 'azure_datalake';
+  type: 'sentinel' | 'splunk' | 's3' | 'azure_blob' | 'elasticsearch' | 'azure_datalake' | 'azure_loganalytics';
   config: Record<string, any>;
   status: 'connected' | 'disconnected' | 'error';
   enabled: boolean;
@@ -116,6 +116,65 @@ export default function DestinationsConfig() {
               onChange={(e)=>setEditingDest({...editingDest, config:{...editingDest.config, concurrency:parseInt(e.target.value)||0}})} margin="normal" />
             <TextField fullWidth label="Compression" value={editingDest.config?.compression || 'gzip'}
               onChange={(e)=>setEditingDest({...editingDest, config:{...editingDest.config, compression:e.target.value}})} margin="normal" />
+          </>
+        );
+      case 'azure_loganalytics':
+        return (
+          <>
+            <TextField
+              fullWidth
+              label="Workspace ID"
+              value={editingDest.config?.workspaceID || ''}
+              onChange={(e) => setEditingDest({
+                ...editingDest,
+                config: { ...editingDest.config, workspaceID: e.target.value }
+              })}
+              margin="normal"
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            />
+            <TextField
+              fullWidth
+              label="Shared Key"
+              type="password"
+              value={editingDest.config?.sharedKey || ''}
+              onChange={(e) => setEditingDest({
+                ...editingDest,
+                config: { ...editingDest.config, sharedKey: e.target.value }
+              })}
+              margin="normal"
+              placeholder="Base64-encoded primary key"
+            />
+            <TextField
+              fullWidth
+              label="Log Type (Table Name)"
+              value={editingDest.config?.logType || 'SecurityAlerts'}
+              onChange={(e) => setEditingDest({
+                ...editingDest,
+                config: { ...editingDest.config, logType: e.target.value }
+              })}
+              margin="normal"
+              helperText="Table will be created as [LogType]_CL automatically"
+            />
+            <TextField
+              fullWidth
+              label="Resource Group (optional)"
+              value={editingDest.config?.resourceGroup || ''}
+              onChange={(e) => setEditingDest({
+                ...editingDest,
+                config: { ...editingDest.config, resourceGroup: e.target.value }
+              })}
+              margin="normal"
+            />
+            <TextField fullWidth type="number" label="Batch Max Events" value={editingDest.config?.batchMaxEvents || 500}
+              onChange={(e)=>setEditingDest({...editingDest, config:{...editingDest.config, batchMaxEvents:parseInt(e.target.value)||0}})} margin="normal" />
+            <TextField fullWidth type="number" label="Batch Max Bytes" value={editingDest.config?.batchMaxBytes || 1048576}
+              onChange={(e)=>setEditingDest({...editingDest, config:{...editingDest.config, batchMaxBytes:parseInt(e.target.value)||0}})} margin="normal" />
+            <TextField fullWidth type="number" label="Flush Interval (s)" value={editingDest.config?.flushIntervalSec || 10}
+              onChange={(e)=>setEditingDest({...editingDest, config:{...editingDest.config, flushIntervalSec:parseInt(e.target.value)||0}})} margin="normal" />
+            <TextField fullWidth type="number" label="Concurrency" value={editingDest.config?.concurrency || 2}
+              onChange={(e)=>setEditingDest({...editingDest, config:{...editingDest.config, concurrency:parseInt(e.target.value)||0}})} margin="normal" />
+            <TextField fullWidth type="number" label="Max Retries" value={editingDest.config?.maxRetries || 3}
+              onChange={(e)=>setEditingDest({...editingDest, config:{...editingDest.config, maxRetries:parseInt(e.target.value)||0}})} margin="normal" />
           </>
         );
       case 'splunk':
@@ -326,6 +385,7 @@ export default function DestinationsConfig() {
               })}
             >
               <MenuItem value="sentinel">Microsoft Sentinel</MenuItem>
+              <MenuItem value="azure_loganalytics">Azure Log Analytics</MenuItem>
               <MenuItem value="splunk">Splunk</MenuItem>
               <MenuItem value="s3">Amazon S3</MenuItem>
               <MenuItem value="azure_blob">Azure Blob Storage</MenuItem>

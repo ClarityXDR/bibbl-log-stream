@@ -22,9 +22,7 @@ FROM golang:${GO_VERSION}-alpine AS builder
 RUN apk add --no-cache ca-certificates git
 WORKDIR /src
 COPY go.mod go.sum ./
-COPY vendor/ ./vendor/
-# If vendor exists, Go will honor -mod=vendor; download step is skipped
-RUN if [ -d vendor ]; then echo "Using vendored modules"; else go mod download; fi
+RUN go mod download
 COPY . ./
 # Bring in built web assets produced in the previous stage
 COPY --from=web /src/internal/web/static /src/internal/web/static
@@ -34,7 +32,7 @@ ARG COMMIT=dev
 ARG DATE
 ENV CGO_ENABLED=0
 RUN mkdir -p /out && \
-    go build -mod=vendor \
+    go build \
     -ldflags "-w -s -X 'bibbl/internal/version.Version=${VERSION}' -X 'bibbl/internal/version.Commit=${COMMIT}' -X 'bibbl/internal/version.Date=${DATE}'" \
     -o /out/bibbl-stream ./cmd/bibbl
 

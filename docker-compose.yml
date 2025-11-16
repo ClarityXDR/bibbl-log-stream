@@ -4,21 +4,21 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VERSION: "${BIBBL_VERSION:-0.1.0}"
+        VERSION: "${BIBBL_VERSION:-0.2.1}"
         COMMIT: "${BIBBL_COMMIT:-docker}"
-        DATE: "${BIBBL_BUILD_DATE}"
+        DATE: "${BIBBL_BUILD_DATE:-2025-11-15T00:00:00Z}"
     image: bibbl-stream:${BIBBL_VERSION:-latest}
     container_name: bibbl-stream
     restart: unless-stopped
     
     # Network configuration for assigned IP
     networks:
-      clarity-lan:
+      bibbl_net:
         ipv4_address: 192.168.0.218
     
     ports:
-      - "443:443"     # Web UI/API over HTTPS
-      - "6514:6514"   # Syslog TLS
+      - "8443:443"    # Web UI/API over HTTPS (dev port)
+      - "6515:6514"   # Syslog TLS (dev port)
     
     environment:
       # Server configuration
@@ -50,7 +50,7 @@ services:
       - ./config:/app/config:ro
     
     healthcheck:
-      test: ["/bibbl-stream", "-health"]
+      test: ["CMD", "/bibbl-stream", "-health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -64,7 +64,7 @@ services:
       - "traefik.http.services.bibbl.loadbalancer.server.scheme=https"
 
 networks:
-  clarity-lan:
+  bibbl_net:
     external: true
 
 volumes:
