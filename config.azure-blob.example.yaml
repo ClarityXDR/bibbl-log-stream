@@ -1,0 +1,186 @@
+# Bibbl Log Stream - Azure Blob Storage Output Configuration Example
+# This file demonstrates various Azure Blob Storage output configurations
+
+server:
+  host: "127.0.0.1"
+  port: 9444
+  tls:
+    min_version: "1.2"
+
+logging:
+  level: "info"
+  format: "json"
+
+# Input configuration (example: syslog)
+inputs:
+  syslog:
+    enabled: true
+    host: "0.0.0.0"
+    port: 6514
+    tls:
+      min_version: "1.2"
+
+# Azure Blob Storage Output Examples
+
+# Example 1: Simple append blob with SAS token
+outputs:
+  azure_blob_simple:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "logs"
+    auth_type: "sas"
+    sas_token: "${AZURE_SAS_TOKEN}"  # Use environment variable
+    write_mode: "append"
+    path_template: "logs/{date}/{source}.log"
+    format: "jsonl"
+
+  # Example 2: Block blob with Managed Identity (recommended for Azure VMs)
+  azure_blob_managed:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "logs"
+    auth_type: "managed_identity"
+    write_mode: "block"
+    max_batch_size: 1000
+    max_batch_bytes: 10485760  # 10MB
+    flush_interval: "30s"
+    compression_type: "gzip"
+    format: "jsonl"
+    path_template: "logs/{year}/{month}/{day}/{hour}/{source}.log"
+
+  # Example 3: Azure AD with Service Principal and encryption
+  azure_blob_secure:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "secure-logs"
+    auth_type: "azure_ad"
+    tenant_id: "${AZURE_TENANT_ID}"
+    client_id: "${AZURE_CLIENT_ID}"
+    client_secret: "${AZURE_CLIENT_SECRET}"
+    write_mode: "block"
+    max_batch_size: 2000
+    flush_interval: "60s"
+    compression_type: "gzip"
+    format: "jsonl"
+    encryption_enabled: true
+    customer_managed_key: "https://myvault.vault.azure.net/keys/logkey/v1"
+    path_template: "logs/{date}/{hour}/{source}.log"
+
+  # Example 4: High availability with local buffer and dead letter
+  azure_blob_ha:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "logs"
+    auth_type: "managed_identity"
+    write_mode: "block"
+    max_batch_size: 1000
+    flush_interval: "30s"
+    compression_type: "gzip"
+    format: "jsonl"
+    path_template: "logs/{date}/{source}.log"
+    # Resilience
+    retry_attempts: 5
+    retry_backoff: "2s"
+    local_buffer_path: "/var/lib/bibbl/buffer/azure_blob.dat"
+    local_buffer_size: 2147483648  # 2GB
+    dead_letter_enabled: true
+    dead_letter_path: "failed/{date}/{source}-failed.log"
+
+  # Example 5: Enterprise with lifecycle management
+  azure_blob_enterprise:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "enterprise-logs"
+    auth_type: "managed_identity"
+    write_mode: "block"
+    max_batch_size: 5000
+    max_batch_bytes: 52428800  # 50MB
+    flush_interval: "60s"
+    compression_type: "gzip"
+    format: "jsonl"
+    path_template: "logs/{year}/{month}/{day}/{hour}/{source}.log"
+    # Encryption
+    encryption_enabled: true
+    customer_managed_key: "https://myvault.vault.azure.net/keys/logkey/v1"
+    # Lifecycle management
+    lifecycle_policy:
+      enabled: true
+      processed_retention_days: 90
+      error_retention_days: 180
+      failed_retention_days: 365
+      transition_to_cool_days: 30
+      transition_to_archive_days: 90
+    # Resilience
+    retry_attempts: 3
+    retry_backoff: "1s"
+    local_buffer_path: "/var/lib/bibbl/buffer/azure_blob.dat"
+    local_buffer_size: 1073741824
+    dead_letter_enabled: true
+    dead_letter_path: "failed/{date}/{source}-failed.log"
+    # Network
+    region: "eastus"
+
+  # Example 6: Private endpoint for secure connectivity
+  azure_blob_private:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "private-logs"
+    auth_type: "managed_identity"
+    write_mode: "block"
+    max_batch_size: 1000
+    flush_interval: "30s"
+    compression_type: "gzip"
+    format: "jsonl"
+    path_template: "logs/{date}/{source}.log"
+    use_private_endpoint: true
+    private_endpoint_url: "https://mystorageaccount.privatelink.blob.core.windows.net"
+    region: "eastus"
+
+  # Example 7: Cost-optimized for archive
+  azure_blob_archive:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "archive"
+    auth_type: "managed_identity"
+    write_mode: "block"
+    max_batch_size: 10000
+    max_batch_bytes: 104857600  # 100MB
+    flush_interval: "300s"  # 5 minutes
+    compression_type: "gzip"
+    format: "jsonl"
+    path_template: "archive/{year}/{month}/{source}.log"
+    lifecycle_policy:
+      enabled: true
+      processed_retention_days: 30
+      transition_to_cool_days: 7
+      transition_to_archive_days: 14
+
+  # Example 8: Real-time streaming with minimal latency
+  azure_blob_realtime:
+    type: "azure_blob"
+    storage_account: "mystorageaccount"
+    container: "realtime"
+    auth_type: "managed_identity"
+    write_mode: "append"
+    compression_type: "none"  # No compression for lower latency
+    format: "jsonl"
+    path_template: "realtime/{date}/{hour}/{source}.log"
+    retry_attempts: 2
+    retry_backoff: "500ms"
+
+# Pipeline routing examples
+routes:
+  # Route all syslog events to Azure Blob
+  - name: "syslog-to-azure"
+    filter: "source == 'syslog'"
+    destination: "azure_blob_managed"
+
+  # Route error logs to separate container
+  - name: "errors-to-azure"
+    filter: "level == 'error'"
+    destination: "azure_blob_secure"
+
+  # Route everything else to standard blob storage
+  - name: "default-to-azure"
+    filter: "*"
+    destination: "azure_blob_simple"
