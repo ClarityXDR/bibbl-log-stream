@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import './styles.css'
 import {
   Box,
@@ -8,37 +8,29 @@ import {
   Select,
   MenuItem,
   Button,
-  Chip,
-  Divider,
   IconButton,
   Tooltip,
-  Stepper,
-  Step,
-  StepLabel,
-  ToggleButtonGroup,
-  ToggleButton,
-  LinearProgress,
   Snackbar,
   Alert,
-  Checkbox,
-  Stack
+  Stack,
+  LinearProgress,
+  Switch,
+  FormControlLabel,
+  Chip,
+  Divider
 } from '@mui/material'
-import { SelectChangeEvent, TextFieldProps } from '@mui/material'
+import { SelectChangeEvent } from '@mui/material'
 import { apiClient } from '../utils/apiClient'
 import {
-  AltRoute as AltRouteIcon,
-  FilterAlt as FilterAltIcon,
-  RocketLaunch as RocketLaunchIcon,
-  AutoFixHigh as AutoFixHighIcon,
-  AddCircle as AddCircleIcon,
+  ArrowBack as BackIcon,
   Save as SaveIcon,
-  PlayArrow as PlayArrowIcon,
-  Refresh as RefreshIcon,
-  Code as CodeIcon,
-  Visibility as VisibilityIcon,
-  ArrowUpward as ArrowUpwardIcon,
-  ArrowDownward as ArrowDownwardIcon
+  Refresh as RefreshIcon
 } from '@mui/icons-material'
+import TemplateGallery from './transform/TemplateGallery'
+import BeforeAfterPreview, { PreviewResult } from './transform/BeforeAfterPreview'
+import FieldExtractionUI from './transform/FieldExtractionUI'
+import FriendlyPipelineBuilder from './transform/FriendlyPipelineBuilder'
+import { TransformTemplate } from './transform/templates'
 
 function useFetcher<T>(url: string, intervalMs?: number) {
   const [data, setData] = useState<T | null>(null)
@@ -77,442 +69,450 @@ type Pipeline = { id: string; name: string; description?: string; functions?: st
 type Destination = { id: string; name: string; type: string }
 type Route = { id: string; name: string; filter: string; pipelineID: string; destination: string; final?: boolean }
 
-// Debounce helper
-function useDebouncedEffect(effect: () => void, deps: any[], delay: number) {
-  useEffect(() => {
-    const h = setTimeout(effect, delay)
-    return () => clearTimeout(h)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, delay])
-}
+
 
 export default function TransformWorkbench({filtersInitialSelected}: {filtersInitialSelected?: string}) {
+  // Wizard state - simplified to 3 main steps
+  const [currentView, setCurrentView] = useState<'gallery' | 'builder'>('gallery')
+  const [selectedTemplate, setSelectedTemplate] = useState<TransformTemplate | null>(null)
+  const [testMode, setTestMode] = useState<boolean>(true)
+  
   // Data
   const routes = useFetcher<Route[]>('/api/v1/routes', 8000)
   const pipelines = useFetcher<Pipeline[]>('/api/v1/pipelines', 10000)
   const dests = useFetcher<Destination[]>('/api/v1/destinations', 10000)
 
-  // Wizard + mode
-  const steps = ['Route', 'Filter', 'Enrichment', 'Pipeline', 'Destination', 'Preview', 'Save']
-  const [activeStep, setActiveStep] = useState(0)
-  const [mode, setMode] = useState<'visual' | 'code'>('visual')
-
-  // Selection and editor state
-  const [selectedRouteId, setSelectedRouteId] = useState<string>('')
+  // Form state
   const [routeName, setRouteName] = useState('New Route')
-  const [pattern, setPattern] = useState('(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)')
+  const [pattern, setPattern] = useState('true')
+  const [sampleLog, setSampleLog] = useState<string>('Paste your sample log here...')
   const [pipeId, setPipeId] = useState<string>('')
   const [destId, setDestId] = useState<string>('')
+  const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null)
+  const [enableEnrichment, setEnableEnrichment] = useState(false)
 
-  // Sample editor
-  const [before, setBefore] = useState<string>('10.0.0.1 app - - demo message 1')
-  const [after, setAfter] = useState<string>('')
-
-  // Run/eval
-  const [err, setErr] = useState<string | undefined>()
-  const [evaluating, setEvaluating] = useState(false)
-
-  // Pipeline builder (visual + code JSON)
-  type FnItem = { name: string; enabled: boolean }
-  const [builderFns, setBuilderFns] = useState<FnItem[]>([])
-  const [showPipelineJSON, setShowPipelineJSON] = useState(false)
-
-  // Library helpers
-  const [lib, setLib] = useState<{ name: string }[]>([])
-  const [libSel, setLibSel] = useState('')
-  const beforeRef = useRef<HTMLTextAreaElement | null>(null)
-
-  const loadLib = async () => {
-    try {
-      const r = await fetch('/api/v1/library')
-      setLib(await r.json())
-    } catch {
-      /* ignore */
-    }
-  }
-  const loadLibFile = async (name: string) => {
-    if (!name) return
-    try {
-      const r = await fetch(`/api/v1/library/${encodeURIComponent(name)}`)
-      setBefore(await r.text())
-    } catch (e: any) {
-      setErr(String(e?.message || e))
-    }
-  }
-
-  useEffect(() => { loadLib() }, [])
-  useEffect(() => {
-    if (filtersInitialSelected) { setLibSel(filtersInitialSelected); loadLibFile(filtersInitialSelected) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtersInitialSelected])
-
-  // Load selection if user picked a route
-  useEffect(() => {
-    if (!selectedRouteId || !routes.data || !Array.isArray(routes.data)) return
-    const r = routes.data.find((x: Route) => x.id === selectedRouteId)
-    if (!r) return
-    setRouteName(r.name)
-    setPattern(r.filter || pattern)
-    setPipeId(r.pipelineID || '')
-    setDestId(r.destination || '')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRouteId])
-
-  // Sync pipeline builder when pipeline changes
-  useEffect(() => {
-    const fns = Array.isArray(pipelines.data) ? pipelines.data.find((p: Pipeline) => p.id === pipeId)?.functions || [] : []
-    setBuilderFns(fns.map(n => ({ name: n, enabled: true })))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipeId, pipelines.data])
-
-  // Live preview run (debounced)
-  const run = async () => {
-    setErr(undefined)
-    setEvaluating(true)
-    try {
-      const lines = before.split(/\r?\n/).filter(Boolean).slice(0, 20)
-      const outs: string[] = []
-      // check if enrichment available
-      let geoLoaded = false
-      try { const s = await fetch('/api/v1/enrich/geoip/status'); const j = await s.json(); geoLoaded = !!j?.loaded } catch {}
-      for (const line of lines) {
-        try {
-          const r = await fetch('/api/v1/preview/regex', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sample: line, pattern })
-          })
-          const j = await r.json()
-          let obj: any = j.captures || {}
-          if (geoLoaded) {
-            try {
-              const er = await fetch('/api/v1/preview/enrich', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sample: line, pattern }) })
-              const ej = await er.json(); if (ej?.enriched && ej.geo) { obj = { ...obj, geo: ej.geo } }
-            } catch {}
-          }
-          outs.push(JSON.stringify(obj, null, 0))
-        } catch (e: any) {
-          outs.push('{}'); setErr(String(e?.message || e))
-        }
-      }
-      setAfter(outs.join('\n'))
-    } finally {
-      setEvaluating(false)
-    }
-  }
-  useEffect(() => { run() }, []) // initial
-  useDebouncedEffect(() => { run() }, [pattern, before], 400)
-
-  // Save / Apply route
+  // Save state
   const [saveOk, setSaveOk] = useState(false)
-  const saveRoute = async () => {
-    const body = { name: routeName, filter: pattern, pipelineID: pipeId, destination: destId, final: true }
-    if (selectedRouteId) {
-      await apiClient.put(`/api/v1/routes/${selectedRouteId}`, body)
-    } else {
-      const r = await apiClient.post('/api/v1/routes', body)
-      setSelectedRouteId(r.data?.id || '')
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Undo/Redo support
+  const [history, setHistory] = useState<{ pattern: string; sampleLog: string }[]>([])
+  const [historyIndex, setHistoryIndex] = useState(-1)
+
+  // Handle template selection
+  const handleSelectTemplate = (template: TransformTemplate) => {
+    setSelectedTemplate(template)
+    setCurrentView('builder')
+    
+    // Pre-populate form from template
+    setRouteName(template.config.routeName)
+    setPattern(template.config.filterPattern)
+    setSampleLog(template.sampleLog)
+    setEnableEnrichment(template.config.enrichment?.enabled || false)
+    
+    // Try to match suggested pipeline and destination
+    if (template.config.pipelineSuggestion && Array.isArray(pipelines.data)) {
+      const suggestedPipe = pipelines.data.find((p: Pipeline) => 
+        p.name.toLowerCase().includes(template.config.pipelineSuggestion!.toLowerCase())
+      )
+      if (suggestedPipe) setPipeId(suggestedPipe.id)
     }
-    await routes.refresh()
-    setSaveOk(true)
+    
+    if (template.config.destinationSuggestion && Array.isArray(dests.data)) {
+      const suggestedDest = dests.data.find((d: Destination) =>
+        d.type.toLowerCase().includes(template.config.destinationSuggestion!.toLowerCase())
+      )
+      if (suggestedDest) setDestId(suggestedDest.id)
+    }
   }
 
-  // Quick add helpers
-  const quickAddRoute = () => {
-    setSelectedRouteId('')
+  // Add to history when pattern or sample changes
+  const addToHistory = () => {
+    setHistory(prev => [...prev.slice(0, historyIndex + 1), { pattern, sampleLog }])
+    setHistoryIndex(prev => prev + 1)
+  }
+
+  const undo = () => {
+    if (historyIndex > 0) {
+      const prev = history[historyIndex - 1]
+      setPattern(prev.pattern)
+      setSampleLog(prev.sampleLog)
+      setHistoryIndex(historyIndex - 1)
+    }
+  }
+
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      const next = history[historyIndex + 1]
+      setPattern(next.pattern)
+      setSampleLog(next.sampleLog)
+      setHistoryIndex(historyIndex + 1)
+    }
+  }
+
+  // Save route
+  const saveRoute = async () => {
+    try {
+      setSaveError(null)
+      
+      // Validation
+      if (!routeName.trim()) {
+        setSaveError('Route name is required')
+        return
+      }
+      if (!pipeId) {
+        setSaveError('Please select a pipeline')
+        return
+      }
+      if (!destId) {
+        setSaveError('Please select a destination')
+        return
+      }
+
+      const body = { 
+        name: routeName.trim(), 
+        filter: pattern, 
+        pipelineID: pipeId, 
+        destination: destId, 
+        final: true 
+      }
+      
+      await apiClient.post('/api/v1/routes', body)
+      await routes.refresh()
+      setSaveOk(true)
+      
+      // Reset to gallery after successful save
+      setTimeout(() => {
+        setCurrentView('gallery')
+        resetForm()
+      }, 2000)
+    } catch (err: any) {
+      setSaveError(err?.message || 'Failed to save route')
+    }
+  }
+
+  // Reset form
+  const resetForm = () => {
+    setSelectedTemplate(null)
     setRouteName('New Route')
     setPattern('true')
-    setPipeId(pipelines.data?.[0]?.id || '')
-    setDestId(dests.data?.[0]?.id || '')
+    setSampleLog('Paste your sample log here...')
+    setPipeId('')
+    setDestId('')
+    setPreviewResult(null)
+    setEnableEnrichment(false)
+    setHistory([])
+    setHistoryIndex(-1)
   }
 
-  // Gating
-  const gates = [
-    routeName.trim().length > 0,
-    pattern.trim().length > 0,
-    true, // enrichment optional
-    !!pipeId,
-    !!destId,
-    true,
-    true
-  ]
-  const canNext = gates[activeStep]
-
-  // Pipeline builder handlers
-  const moveFn = (idx: number, dir: -1 | 1) => {
-    setBuilderFns(prev => {
-      const arr = [...prev]
-      const ni = idx + dir
-      if (ni < 0 || ni >= arr.length) return prev
-      const [it] = arr.splice(idx, 1)
-      arr.splice(ni, 0, it)
-      return arr
-    })
-  }
-  const toggleFn = (idx: number) => {
-    setBuilderFns(prev => {
-      const arr = [...prev]
-      arr[idx] = { ...arr[idx], enabled: !arr[idx].enabled }
-      return arr
-    })
-  }
-
-  // Mode toggle
-  const handleMode = (_: any, val: 'visual' | 'code' | null) => { if (val) setMode(val) }
-
-  // Step content
-  const StepContent = () => {
-    switch (activeStep) {
-      case 0: // Route
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-              <Select size="small" value={selectedRouteId} onChange={(e: SelectChangeEvent<string>) => setSelectedRouteId(e.target.value as string)} displayEmpty sx={{ minWidth: 220 }}>
-                <MenuItem value=""><em>New route…</em></MenuItem>
-                {(Array.isArray(routes.data) ? routes.data : []).map((r: Route) => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
-              </Select>
-              <Tooltip title="Quick New"><IconButton onClick={quickAddRoute} color="primary"><AddCircleIcon /></IconButton></Tooltip>
-              <Tooltip title="Refresh"><IconButton onClick={() => routes.refresh()} color="primary"><RefreshIcon /></IconButton></Tooltip>
-            </Box>
-            <TextField fullWidth label="Route name" value={routeName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRouteName(e.target.value)} />
-          </Box>
-        )
-      case 1: // Filter
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {mode === 'visual' ? (
-              <>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Chip icon={<AutoFixHighIcon />} color="info" label="IP + rest" onClick={() => setPattern('(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)\\n?(?P<rest>.*)')} />
-                  <Chip color="secondary" label="Reset to IP" onClick={() => { setPattern('(?P<ip>\\d+\\.\\d+\\.\\d+\\.\\d+)'); }} />
-                  <Chip color="success" label="Show everything" onClick={() => setPattern('true')} />
-                  <Chip color="warning" label="CEF only" onClick={() => setPattern('(?P<cef>CEF:.*)')} />
-                </Box>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Select size="small" value={libSel} onChange={(e: SelectChangeEvent<string>) => { const v = e.target.value as string; setLibSel(v); loadLibFile(v) }} displayEmpty sx={{ minWidth: 220 }}>
-                    <MenuItem value=""><em>Sample library…</em></MenuItem>
-                    {(Array.isArray(lib) ? lib : []).map(i => <MenuItem key={i.name} value={i.name}>{i.name}</MenuItem>)}
-                  </Select>
-                  <IconButton onClick={loadLib}><RefreshIcon /></IconButton>
-                </Box>
-                <TextField label="Filter (regex or expression)" value={pattern} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPattern(e.target.value)} fullWidth />
-              </>
-            ) : (
-              <TextField label="Filter (raw)" value={pattern} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPattern(e.target.value)} fullWidth multiline minRows={6} />
-            )}
-            {!!err && <Typography variant="caption" color="error">{err}</Typography>}
-            {evaluating && <LinearProgress sx={{ mt: .5 }} />}
-          </Box>
-        )
-      case 2: // Enrichment
-        return (
-          <GeoIPEnrichment pattern={pattern} before={before} onSuggestIp={() => {
-            // put caret to end to keep typing smooth
-            beforeRef.current?.focus()
-          }} />
-        )
-      case 3: // Pipeline
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Select fullWidth size="small" value={pipeId} onChange={(e: SelectChangeEvent<string>) => setPipeId(e.target.value as string)} displayEmpty>
-              <MenuItem value=""><em>Choose pipeline</em></MenuItem>
-              {(Array.isArray(pipelines.data) ? pipelines.data : []).map(p => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
-            </Select>
-            {!pipeId ? <Chip label="Choose a pipeline to configure functions" /> : (
-              <>
-                <Typography variant="subtitle2">Functions</Typography>
-                {mode === 'visual' && (
-                  <Stack spacing={.5}>
-                    {builderFns.map((fn, idx) => (
-                      <Paper variant="outlined" key={fn.name} sx={{ p: .5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Checkbox checked={fn.enabled} onChange={() => toggleFn(idx)} />
-                        <Typography sx={{ flex: 1 }}>{fn.name}</Typography>
-                        <IconButton size="small" onClick={() => moveFn(idx, -1)} disabled={idx === 0}><ArrowUpwardIcon fontSize="small" /></IconButton>
-                        <IconButton size="small" onClick={() => moveFn(idx, 1)} disabled={idx === builderFns.length - 1}><ArrowDownwardIcon fontSize="small" /></IconButton>
-                      </Paper>
-                    ))}
-                  </Stack>
-                )}
-                {mode === 'code' && (
-                  <TextField
-                    label="Functions (JSON)"
-                    value={JSON.stringify(builderFns, null, 2)}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                      try {
-                        const v = JSON.parse(e.target.value) as FnItem[]
-                        if (Array.isArray(v)) setBuilderFns(v.map(x => ({ name: String(x.name), enabled: !!x.enabled })))
-                        setErr(undefined)
-                      } catch (ex: any) {
-                        setErr('Invalid JSON')
-                      }
-                    }}
-                    multiline minRows={8} fullWidth
-                  />
-                )}
-              </>
-            )}
-          </Box>
-        )
-  case 4: // Destination
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Select fullWidth size="small" value={destId} onChange={(e: SelectChangeEvent<string>) => setDestId(e.target.value as string)} displayEmpty>
-              <MenuItem value=""><em>Choose destination</em></MenuItem>
-              {(Array.isArray(dests.data) ? dests.data : []).map(d => <MenuItem key={d.id} value={d.id}>{d.name}</MenuItem>)}
-            </Select>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5 }}>
-              {destId ? <Chip label={Array.isArray(dests.data) ? dests.data.find(d => d.id === destId)?.type || 'selected' : 'selected'} color="primary" variant="outlined" /> : <Chip label="select a destination" />}
-            </Box>
-          </Box>
-        )
-  case 5: // Preview
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="body2">Review matches and route summary in the live preview. You can also run an explicit test.</Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              <Button variant="outlined" startIcon={<PlayArrowIcon />} onClick={run} disabled={evaluating}>Run Preview</Button>
-              {evaluating && <LinearProgress sx={{ flex: 1, alignSelf: 'center' }} />}
-            </Box>
-            {!!err && <Typography variant="caption" color="error">{err}</Typography>}
-          </Box>
-        )
-  case 6: // Save
-        return (
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="body2">Save your route and run a quick test. You can edit again anytime.</Typography>
-            <Button variant="contained" color="primary" startIcon={<SaveIcon />} onClick={async () => { await saveRoute(); await run() }}>
-              Save & Test
-            </Button>
-          </Box>
-        )
-      default:
-        return null
+  // Back to gallery
+  const handleBack = () => {
+    if (confirm('Go back to template selection? Your current work will be lost.')) {
+      setCurrentView('gallery')
+      resetForm()
     }
   }
 
-  // Layout with persistent live preview
+  // Progress calculation
+  const getProgress = () => {
+    let completed = 0
+    const total = 4
+    if (pattern.trim().length > 0) completed++
+    if (previewResult && previewResult.matchedLines > 0) completed++
+    if (pipeId) completed++
+    if (destId) completed++
+    return (completed / total) * 100
+  }
+
+  // Validation helpers
+  const isFormValid = () => {
+    return routeName.trim().length > 0 && !!pipeId && !!destId
+  }
+
+  const getValidationMessage = () => {
+    if (!routeName.trim()) return 'Enter a name for your route'
+    if (!pipeId) return 'Select a pipeline to process logs'
+    if (!destId) return 'Select where to send processed logs'
+    if (previewResult && previewResult.matchedLines === 0) return 'Your pattern doesn\'t match any sample logs'
+    return null
+  }
+
+  // Render template gallery
+  if (currentView === 'gallery') {
+    return (
+      <Paper elevation={6} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+        <TemplateGallery onSelectTemplate={handleSelectTemplate} />
+      </Paper>
+    )
+  }
+
+  // Render builder view
   return (
-    <Paper elevation={6} sx={{ p: 2, borderRadius: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800 }}>Transform Workbench</Typography>
-          <Chip size="small" color="secondary" label="Wizard" />
-        </Box>
-        <ToggleButtonGroup size="small" value={mode} exclusive onChange={handleMode}>
-          <ToggleButton value="visual"><VisibilityIcon fontSize="small" />&nbsp;Visual</ToggleButton>
-          <ToggleButton value="code"><CodeIcon fontSize="small" />&nbsp;Code</ToggleButton>
-        </ToggleButtonGroup>
-      </Box>
-
-      <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 2 }}>
-        {steps.map((label, i) => (
-          <Step key={label} onClick={() => { if (i <= activeStep || gates.slice(0, i).every(Boolean)) setActiveStep(i) }} sx={{ cursor: 'pointer' }}>
-            <StepLabel>{label}</StepLabel>
-          </Step>
-        ))}
-      </Stepper>
-
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-        <Box>
-          <StepContent />
-          <Divider sx={{ my: 2 }} />
-          <Box sx={{ display: 'flex', gap: 1, justifyContent: 'space-between' }}>
-            <Button variant="outlined" onClick={() => setActiveStep(s => Math.max(0, s - 1))} disabled={activeStep === 0}>Back</Button>
-            <Button variant="contained" onClick={() => setActiveStep(s => Math.min(steps.length - 1, s + 1))} disabled={!canNext || activeStep === steps.length - 1}>Next</Button>
+    <Paper elevation={6} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+      {/* Header */}
+      <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider', bgcolor: 'primary.50' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box sx={{ flex: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 0.5 }}>
+              <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                {selectedTemplate?.icon} {selectedTemplate?.title || 'Custom Transform'}
+              </Typography>
+              {testMode && (
+                <Chip 
+                  label="🧪 Test Mode" 
+                  size="small" 
+                  color="warning"
+                  sx={{ fontWeight: 600 }}
+                />
+              )}
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              {selectedTemplate?.description || 'Configure your custom log transformation'}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FormControlLabel
+              control={
+                <Switch 
+                  checked={testMode} 
+                  onChange={(e) => setTestMode(e.target.checked)}
+                  color="warning"
+                />
+              }
+              label={
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                  {testMode ? 'Testing' : 'Live'}
+                </Typography>
+              }
+            />
+            <Tooltip title="Back to templates">
+              <IconButton onClick={handleBack} size="large">
+                <BackIcon />
+              </IconButton>
+            </Tooltip>
           </Box>
         </Box>
 
-        <Box>
-          <Paper variant="outlined" sx={{ p: 1.5 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: .5 }}>
-              <FilterAltIcon fontSize="small" /><Typography variant="subtitle2">Live Preview</Typography>
-            </Box>
-            {evaluating && <LinearProgress sx={{ mb: 1 }} />}
-            <Typography variant="caption" sx={{ opacity: .9 }}>Sample input</Typography>
-            <TextField
-              inputRef={beforeRef}
-              value={before}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setBefore(e.target.value)}
-              multiline minRows={8} fullWidth
-              sx={{ '& textarea': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }, mb: 1 }}
-            />
-            <Typography variant="caption" sx={{ opacity: .9 }}>Structured matches</Typography>
-            <TextField
-              value={after}
-              multiline minRows={8} fullWidth
-              InputProps={{ readOnly: true }}
-              sx={{ '& textarea': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }, mb: 1 }}
-            />
-            <Divider sx={{ my: 1 }} />
-            <Typography variant="caption" sx={{ opacity: .9 }}>Route summary</Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: .5, mt: .5 }}>
-              <Chip icon={<AltRouteIcon />} label={routeName || 'unnamed'} />
-              <Chip label={pattern ? `filter: ${pattern.slice(0, 24)}${pattern.length > 24 ? '…' : ''}` : 'no filter'} color="info" variant="outlined" />
-              <Chip icon={<RocketLaunchIcon />} label={Array.isArray(pipelines.data) ? pipelines.data.find(p => p.id === pipeId)?.name || 'no pipeline' : 'no pipeline'} color="success" variant="outlined" />
-              <Chip label={Array.isArray(dests.data) ? dests.data.find(d => d.id === destId)?.name || 'no destination' : 'no destination'} color="primary" variant="outlined" />
-            </Box>
-          </Paper>
+        {/* Progress Bar */}
+        <Box sx={{ mt: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+            <Typography variant="caption" sx={{ fontWeight: 600 }}>
+              Progress: {Math.round(getProgress())}% Complete
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(getProgress()) === 100 ? '🎉 Ready to save!' : 'Keep going...'}
+            </Typography>
+          </Box>
+          <LinearProgress 
+            variant="determinate" 
+            value={getProgress()} 
+            sx={{ 
+              height: 8, 
+              borderRadius: 1,
+              bgcolor: 'grey.200',
+              '& .MuiLinearProgress-bar': {
+                borderRadius: 1,
+                background: getProgress() === 100 
+                  ? 'linear-gradient(90deg, #4caf50 0%, #8bc34a 100%)'
+                  : 'linear-gradient(90deg, #2196f3 0%, #21cbf3 100%)'
+              }
+            }}
+          />
+        </Box>
+
+        {/* Basic Info */}
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
+          <TextField
+            label="Route Name"
+            value={routeName}
+            onChange={(e) => setRouteName(e.target.value)}
+            required
+            sx={{ flex: 1 }}
+            helperText="Give your transform a descriptive name"
+          />
+          <Button
+            variant="outlined"
+            startIcon={<RefreshIcon />}
+            onClick={() => {
+              pipelines.refresh()
+              dests.refresh()
+            }}
+          >
+            Refresh
+          </Button>
         </Box>
       </Box>
 
-      <Snackbar open={saveOk} autoHideDuration={2500} onClose={() => setSaveOk(false)}>
-        <Alert onClose={() => setSaveOk(false)} severity="success" sx={{ width: '100%' }}>
-          Route saved and preview updated.
+      {/* Main Content */}
+      <Box sx={{ p: 3 }}>
+        <Stack spacing={4}>
+          {/* Step 1: Extract Fields */}
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+              Step 1: What fields do you want to extract?
+            </Typography>
+            <FieldExtractionUI
+              sampleLog={sampleLog}
+              pattern={pattern}
+              onPatternChange={setPattern}
+            />
+          </Box>
+
+          <Divider />
+
+          {/* Step 2: Preview */}
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+              Step 2: Preview your results
+            </Typography>
+            <BeforeAfterPreview
+              sampleInput={sampleLog}
+              onSampleChange={setSampleLog}
+              pattern={pattern}
+              enrichmentEnabled={enableEnrichment}
+              onPreviewResult={setPreviewResult}
+            />
+          </Box>
+
+          <Divider />
+
+          {/* Step 3: Choose Pipeline */}
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+              Step 3: How should we process the logs?
+            </Typography>
+            <Select
+              fullWidth
+              value={pipeId}
+              onChange={(e) => setPipeId(e.target.value)}
+              displayEmpty
+              sx={{ mb: 2 }}
+            >
+              <MenuItem value="">
+                <em>Select a pipeline...</em>
+              </MenuItem>
+              {(Array.isArray(pipelines.data) ? pipelines.data : []).map((p: Pipeline) => (
+                <MenuItem key={p.id} value={p.id}>
+                  {p.name}
+                  {p.description && ` - ${p.description}`}
+                </MenuItem>
+              ))}
+            </Select>
+
+            {pipeId && (
+              <FriendlyPipelineBuilder
+                selectedPipelineId={pipeId}
+                availableFunctions={
+                  Array.isArray(pipelines.data)
+                    ? pipelines.data.find((p: Pipeline) => p.id === pipeId)?.functions || []
+                    : []
+                }
+              />
+            )}
+          </Box>
+
+          <Divider />
+
+          {/* Step 4: Choose Destination */}
+          <Box>
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 2 }}>
+              Step 4: Where should we send the processed logs?
+            </Typography>
+            <Select
+              fullWidth
+              value={destId}
+              onChange={(e) => setDestId(e.target.value)}
+              displayEmpty
+            >
+              <MenuItem value="">
+                <em>Select a destination...</em>
+              </MenuItem>
+              {(Array.isArray(dests.data) ? dests.data : []).map((d: Destination) => (
+                <MenuItem key={d.id} value={d.id}>
+                  {d.name} ({d.type})
+                </MenuItem>
+              ))}
+            </Select>
+          </Box>
+
+          {/* Validation Message */}
+          {getValidationMessage() && (
+            <Alert severity={isFormValid() ? 'info' : 'warning'}>
+              {getValidationMessage()}
+            </Alert>
+          )}
+
+          {/* Save Error */}
+          {saveError && (
+            <Alert severity="error" onClose={() => setSaveError(null)}>
+              {saveError}
+            </Alert>
+          )}
+
+          {/* Actions */}
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+            <Button variant="outlined" onClick={handleBack}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<SaveIcon />}
+              onClick={() => {
+                if (testMode) {
+                  if (confirm('🧪 You are in Test Mode. Switch to Live Mode to save this transform for real?')) {
+                    setTestMode(false)
+                  }
+                } else {
+                  saveRoute()
+                }
+              }}
+              disabled={!isFormValid()}
+              sx={{
+                py: 1.5,
+                px: 4,
+                fontSize: '1.1rem',
+                fontWeight: 700,
+                background: isFormValid() 
+                  ? 'linear-gradient(45deg, #4CAF50 30%, #8BC34A 90%)'
+                  : undefined,
+                boxShadow: isFormValid() ? '0 3px 5px 2px rgba(76, 175, 80, .3)' : undefined,
+                '&:hover': isFormValid() ? {
+                  background: 'linear-gradient(45deg, #45A049 30%, #7CB342 90%)',
+                  transform: 'scale(1.05)',
+                  boxShadow: '0 6px 10px 4px rgba(76, 175, 80, .4)'
+                } : undefined,
+                '&:disabled': {
+                  background: 'grey.300'
+                }
+              }}
+            >
+              {testMode ? '🧪 Test Save' : '🎉 Save Transform!'}
+            </Button>
+          </Box>
+        </Stack>
+      </Box>
+
+      {/* Success Snackbar */}
+      <Snackbar 
+        open={saveOk} 
+        autoHideDuration={4000} 
+        onClose={() => setSaveOk(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setSaveOk(false)} 
+          severity="success" 
+          sx={{ 
+            width: '100%',
+            fontSize: '1.1rem',
+            fontWeight: 600
+          }}
+          variant="filled"
+        >
+          🎉 {testMode ? 'Test completed! Changes not saved.' : 'Success! Transform saved and ready to use!'}
         </Alert>
       </Snackbar>
     </Paper>
-  )
-}
-
-// Lightweight enrichment step focusing on GeoIP
-function GeoIPEnrichment({ pattern, before, onSuggestIp }: { pattern: string; before: string; onSuggestIp?: () => void }) {
-  const [status, setStatus] = useState<{loaded:boolean; path?:string; size?:number; mtime?:number}>({loaded:false})
-  const [ip, setIp] = useState('')
-  const [geo, setGeo] = useState<any>(null)
-  const [busy, setBusy] = useState(false)
-  const reload = async () => {
-    try { const r = await fetch('/api/v1/enrich/geoip/status'); setStatus(await r.json()) } catch {}
-  }
-  useEffect(() => { reload() }, [])
-  const upload = async (file: File) => {
-    const fd = new FormData(); fd.append('file', file)
-    await fetch('/api/v1/enrich/geoip/upload', { method: 'POST', body: fd })
-    await reload()
-  }
-  const preview = async () => {
-    setBusy(true)
-    setGeo(null)
-    try {
-      const body: any = { sample: before, pattern }
-      if (ip) body.ip = ip
-      const r = await fetch('/api/v1/preview/enrich', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-      const j = await r.json(); setGeo(j)
-    } finally { setBusy(false) }
-  }
-  const suggest = () => {
-    // naive IP pick from sample
-    const m = before.match(/\b\d+\.\d+\.\d+\.\d+\b/); if (m) setIp(m[0]); onSuggestIp?.()
-  }
-  return (
-    <Box sx={{ display:'flex', flexDirection:'column', gap:1 }}>
-      <Typography variant="subtitle2">GeoIP</Typography>
-      <Box sx={{ display:'flex', alignItems:'center', gap:1, flexWrap:'wrap' }}>
-        <Chip label={status.loaded ? 'Database loaded' : 'No database'} color={status.loaded ? 'success' : 'warning'} />
-        {!!status.path && <Chip label={(status.path.split(/[\\/]/).pop() || 'db')} />}
-        <Button variant="outlined" size="small" startIcon={<RefreshIcon />} onClick={reload}>Status</Button>
-        <Button variant="contained" component="label" size="small">Upload .mmdb<input hidden type="file" accept=".mmdb" onChange={e => { const f = e.target.files?.[0]; if (f) upload(f) }} /></Button>
-      </Box>
-      <Box sx={{ display:'flex', gap:1, alignItems:'center' }}>
-        <TextField size="small" label="IP (optional)" value={ip} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIp(e.target.value)} sx={{ maxWidth: 260 }} />
-        <Button size="small" onClick={suggest}>Suggest from sample</Button>
-        <Button variant="contained" size="small" onClick={preview} disabled={!status.loaded || busy}>{busy? 'Looking…':'Preview enrichment'}</Button>
-      </Box>
-      {geo && (
-        <Paper variant="outlined" sx={{ p:1 }}>
-          <Typography variant="caption">Preview</Typography>
-          <pre className="code-preview">{JSON.stringify(geo, null, 2)}</pre>
-        </Paper>
-      )}
-    </Box>
   )
 }

@@ -29,4 +29,22 @@ Security headers: basic hardened defaults (CSP, no sniff, frame deny) are applie
 
 Syslog TLS auto-cert: when `inputs.syslog.tls.auto_cert.enabled` is true (default), Bibbl automatically generates and renews a self-signed certificate for the Syslog-over-TLS listener. The PEM files are stored under `./certs/syslog/` (share the `.crt`/`.pem` with Versa SD-WAN firewalls, keep the `.key` private). Add additional SANs via `inputs.syslog.tls.auto_cert.hosts` or the `BIBBL_SYSLOG_TLS_EXTRA_HOSTS` environment variable.
 
+## Pipeline filters & routing
+
+- Pipelines can declare structured filters via the API or UI. The Pipelines modal now includes a filter builder where you can pick any field, choose `include` or `exclude`, and supply comma-separated values—no need to hand-edit `filter:` strings.
+- Under the hood every filter row is persisted as a `filter:` transform (for example, `filter:severity=critical|high|med`). Existing handcrafted functions are parsed and shown back in the builder so you can tweak them visually.
+- API clients may send filters explicitly:
+
+                {
+                    "name": "Sentinel High",
+                    "description": "Only high value events",
+                    "functions": ["Parse CEF"],
+                    "filters": [
+                        { "field": "severity", "values": ["critical", "high", "med"], "mode": "include" },
+                        { "field": "vendorRisk", "values": ["critical"], "mode": "exclude" }
+                    ]
+                }
+
+- Filter drop counts and totals are exported via `bibbl_pipeline_events_processed_total{status="filtered"}` and mirrored in `/api/v1/pipelines/stats`, which now includes processed counts plus drop percentages so operators can verify suppression rates.
+
 See vision.md for requirements and roadmap.

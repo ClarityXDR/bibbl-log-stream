@@ -9,14 +9,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"bibbl/pkg/buffer/spill"
+
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+)
+
+const (
+	defaultSpillReplayInterval = 30 * time.Second
 )
 
 // LogAnalyticsOutput sends data to Azure Log Analytics Workspace using the HTTP Data Collector API
@@ -37,14 +44,16 @@ type LogAnalyticsOutput struct {
 	RetryDelaySec    int
 
 	// Runtime state
-	client     *http.Client
-	batch      []map[string]interface{}
-	batchBytes int
-	batchMu    sync.Mutex
-	flushTimer *time.Timer
-	stopCh     chan struct{}
-	wg         sync.WaitGroup
-	tracer     trace.Tracer
+	client       *http.Client
+	batch        []map[string]interface{}
+	batchBytes   int
+	batchMu      sync.Mutex
+	flushTimer   *time.Timer
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
+	tracer       trace.Tracer
+	spillQueue   *spill.Queue
+	replayTicker *time.Ticker
 }
 
 // Config holds configuration for Azure Log Analytics output
@@ -60,7 +69,16 @@ type Config struct {
 	Concurrency      int                    `json:"concurrency"`
 	MaxRetries       int                    `json:"maxRetries"`
 	RetryDelaySec    int                    `json:"retryDelaySec"`
+	Spill            SpillSettings          `json:"spill"`
 	Extra            map[string]interface{} `json:",inline"`
+}
+
+// SpillSettings controls disk-backed durability for Azure output batches
+type SpillSettings struct {
+	Enabled     bool   `json:"enabled"`
+	Directory   string `json:"directory"`
+	MaxBytes    int64  `json:"maxBytes"`
+	SegmentSize int64  `json:"segmentSize"`
 }
 
 // NewLogAnalyticsOutput creates a new Azure Log Analytics output with sensible defaults
@@ -94,6 +112,17 @@ func NewLogAnalyticsOutput(cfg Config) (*LogAnalyticsOutput, error) {
 	if cfg.RetryDelaySec <= 0 {
 		cfg.RetryDelaySec = 2
 	}
+	if cfg.Spill.Enabled {
+		if strings.TrimSpace(cfg.Spill.Directory) == "" {
+			cfg.Spill.Directory = "./data/spill/azure"
+		}
+		if cfg.Spill.MaxBytes <= 0 {
+			cfg.Spill.MaxBytes = 10 * 1024 * 1024 * 1024 // 10GB default retention
+		}
+		if cfg.Spill.SegmentSize <= 0 {
+			cfg.Spill.SegmentSize = 1 * 1024 * 1024
+		}
+	}
 
 	// Remove _CL suffix if user provided it (Azure adds it automatically)
 	cfg.LogType = strings.TrimSuffix(cfg.LogType, "_CL")
@@ -125,6 +154,21 @@ func NewLogAnalyticsOutput(cfg Config) (*LogAnalyticsOutput, error) {
 
 	// Start flush timer
 	output.flushTimer = time.AfterFunc(time.Duration(output.FlushIntervalSec)*time.Second, output.periodicFlush)
+
+	if cfg.Spill.Enabled {
+		queue, err := spill.NewQueue(spill.Config{
+			Directory:   cfg.Spill.Directory,
+			MaxBytes:    cfg.Spill.MaxBytes,
+			SegmentSize: cfg.Spill.SegmentSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("init spill queue: %w", err)
+		}
+		output.spillQueue = queue
+		output.replayTicker = time.NewTicker(defaultSpillReplayInterval)
+		output.wg.Add(1)
+		go output.replayLoop()
+	}
 
 	return output, nil
 }
@@ -178,7 +222,7 @@ func (o *LogAnalyticsOutput) flushBatchLocked() error {
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
-		_ = o.sendBatch(batchToSend)
+		_ = o.deliverBatch(batchToSend, true)
 	}()
 
 	return nil
@@ -196,9 +240,50 @@ func (o *LogAnalyticsOutput) periodicFlush() {
 	}
 }
 
-// sendBatch sends a batch of events to Azure Log Analytics with retry
-func (o *LogAnalyticsOutput) sendBatch(events []map[string]interface{}) error {
-	ctx, span := o.tracer.Start(context.Background(), "sendBatch", trace.WithAttributes(
+func (o *LogAnalyticsOutput) deliverBatch(events []map[string]interface{}, allowSpill bool) error {
+	if len(events) == 0 {
+		return nil
+	}
+	err := o.transmitBatch(events)
+	if err == nil {
+		return nil
+	}
+	if allowSpill && o.spillQueue != nil {
+		if spillErr := o.spillQueue.Append(events); spillErr != nil {
+			log.Printf("azureloganalytics: spill append failed: %v", spillErr)
+			return err
+		}
+		log.Printf("azureloganalytics: buffered %d events for retry", len(events))
+	}
+	return err
+}
+
+func (o *LogAnalyticsOutput) replayLoop() {
+	defer o.wg.Done()
+	for {
+		select {
+		case <-o.stopCh:
+			return
+		case <-o.replayTicker.C:
+			if err := o.drainSpill(); err != nil {
+				log.Printf("azureloganalytics: spill replay failed: %v", err)
+			}
+		}
+	}
+}
+
+func (o *LogAnalyticsOutput) drainSpill() error {
+	if o.spillQueue == nil {
+		return nil
+	}
+	return o.spillQueue.Replay(func(events []map[string]interface{}) error {
+		return o.transmitBatch(events)
+	})
+}
+
+// transmitBatch sends a batch of events to Azure Log Analytics with retry
+func (o *LogAnalyticsOutput) transmitBatch(events []map[string]interface{}) error {
+	ctx, span := o.tracer.Start(context.Background(), "transmitBatch", trace.WithAttributes(
 		attribute.Int("batch.size", len(events)),
 	))
 	defer span.End()
@@ -304,16 +389,20 @@ func (o *LogAnalyticsOutput) Close() error {
 	if o.flushTimer != nil {
 		o.flushTimer.Stop()
 	}
+	if o.replayTicker != nil {
+		o.replayTicker.Stop()
+	}
 
 	// Final flush
-	if err := o.Flush(); err != nil {
-		return err
-	}
+	closeErr := o.Flush()
 
 	// Wait for all sends to complete
 	o.wg.Wait()
 
-	return nil
+	if drainErr := o.drainSpill(); drainErr != nil && closeErr == nil {
+		closeErr = drainErr
+	}
+	return closeErr
 }
 
 // GetStats returns statistics about the output

@@ -107,6 +107,7 @@ type PipelineEngine interface {
 	CreatePipeline(name, desc string, fns []string) (interface{}, error)
 	UpdatePipeline(id, name, desc string, fns []string) error
 	DeletePipeline(id string) error
+	GetPipelineStats() []PipelineStats
 
 	// Routes
 	GetRoutes() []struct {
@@ -1198,6 +1199,7 @@ func (s *Server) RegisterRoutes(router *mux.Router) {
 
 	// Pipelines
 	v1.HandleFunc("/pipelines", s.handlePipelinesList).Methods("GET")
+	v1.HandleFunc("/pipelines/stats", s.handlePipelineStats).Methods("GET")
 	v1.HandleFunc("/pipelines", s.handlePipelineCreate).Methods("POST")
 	v1.HandleFunc("/pipelines/{id}", s.handlePipelineUpdate).Methods("PUT")
 	v1.HandleFunc("/pipelines/{id}", s.handlePipelineDelete).Methods("DELETE")

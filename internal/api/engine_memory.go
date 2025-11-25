@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,13 +26,14 @@ import (
 )
 
 type memoryEngine struct {
-	mu        sync.RWMutex
-	sources   []*memSource
-	dests     []memDest
-	pipelines []memPipe
-	routes    []memRoute
-	seq       int
-	hub       *LogHub
+	mu            sync.RWMutex
+	sources       []*memSource
+	dests         []memDest
+	pipelines     []memPipe
+	routes        []memRoute
+	seq           int
+	hub           *LogHub
+	pipelineStats sync.Map
 	// optional enrichment hook provided by server
 	geo func(ip string) (map[string]interface{}, bool)
 	asn func(ip string) (map[string]interface{}, bool)
@@ -43,8 +45,9 @@ type memoryEngine struct {
 	bufferMin  map[string]int
 	bufferMax  map[string]int
 	// parsers
-	versaParser    *filters.VersaKVPParser
-	paloAltoParser *filters.PaloAltoCSVParser
+	versaParser       *filters.VersaKVPParser
+	paloAltoParser    *filters.PaloAltoCSVParser
+	universalKVParser *filters.UniversalKVParser
 }
 
 type memSource struct {
@@ -81,6 +84,273 @@ type memPipe struct {
 	//   "" or "first_ipv4" (default) -> first IPv4 literal in the raw message
 	//   "field:<name>" -> attempts to extract IPv4 from either key=value or JSON field
 	IPSource string
+	Filters  []kvFilter
+}
+
+type pipelineCounter struct {
+	name      atomic.Value
+	filtered  atomic.Uint64
+	processed atomic.Uint64
+}
+
+type filterOp int
+
+const (
+	filterOpInclude filterOp = iota
+	filterOpExclude
+)
+
+type kvFilter struct {
+	field      string
+	fieldLower string
+	op         filterOp
+	values     map[string]struct{}
+	raw        string
+	rawRegex   *regexp.Regexp
+}
+
+func compileKVFilters(functions []string) ([]kvFilter, error) {
+	filters := make([]kvFilter, 0)
+	invalid := make([]string, 0)
+	for _, fn := range functions {
+		filter, ok := newKVFilter(fn)
+		if ok {
+			filters = append(filters, filter)
+			continue
+		}
+		trimmed := strings.TrimSpace(fn)
+		if strings.HasPrefix(strings.ToLower(trimmed), "filter:") {
+			invalid = append(invalid, trimmed)
+		}
+	}
+	if len(invalid) > 0 {
+		return nil, fmt.Errorf("invalid filter function(s): %s", strings.Join(invalid, ", "))
+	}
+	return filters, nil
+}
+
+func newKVFilter(fn string) (kvFilter, bool) {
+	expr := strings.TrimSpace(fn)
+	if !strings.HasPrefix(strings.ToLower(expr), "filter:") {
+		return kvFilter{}, false
+	}
+	parts := strings.SplitN(expr, ":", 2)
+	if len(parts) != 2 {
+		return kvFilter{}, false
+	}
+	body := strings.TrimSpace(parts[1])
+	if body == "" {
+		return kvFilter{}, false
+	}
+	var field, valuesPart string
+	op := filterOpInclude
+	switch {
+	case strings.Contains(body, "!="):
+		seg := strings.SplitN(body, "!=", 2)
+		field = strings.TrimSpace(seg[0])
+		valuesPart = seg[1]
+		op = filterOpExclude
+	case strings.Contains(body, "="):
+		seg := strings.SplitN(body, "=", 2)
+		field = strings.TrimSpace(seg[0])
+		valuesPart = seg[1]
+	case strings.Contains(body, ":"):
+		seg := strings.SplitN(body, ":", 2)
+		field = strings.TrimSpace(seg[0])
+		valuesPart = seg[1]
+	default:
+		return kvFilter{}, false
+	}
+	vals := parseFilterValues(valuesPart)
+	if field == "" || len(vals) == 0 {
+		return kvFilter{}, false
+	}
+	valueSet := make(map[string]struct{}, len(vals))
+	for _, v := range vals {
+		lv := strings.ToLower(v)
+		if lv == "" {
+			continue
+		}
+		valueSet[lv] = struct{}{}
+	}
+	if len(valueSet) == 0 {
+		return kvFilter{}, false
+	}
+	pattern := fmt.Sprintf(`(?i)(?:^|[\s",\[{(;])%s\s*(?:=|:)\s*"?([^"\s,;\]}]+)"?`, regexp.QuoteMeta(field))
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		re = nil
+	}
+	return kvFilter{
+		field:      field,
+		fieldLower: strings.ToLower(field),
+		op:         op,
+		values:     valueSet,
+		raw:        expr,
+		rawRegex:   re,
+	}, true
+}
+
+func parseFilterValues(input string) []string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return nil
+	}
+	return strings.FieldsFunc(trimmed, func(r rune) bool {
+		switch r {
+		case ',', '|', ';':
+			return true
+		default:
+			return false
+		}
+	})
+}
+
+func (f kvFilter) allows(payload map[string]interface{}) bool {
+	if len(f.values) == 0 {
+		return true
+	}
+	val, ok := lookupFieldValue(payload, f.field)
+	if !ok {
+		if raw, okRaw := payload["_raw"].(string); okRaw && f.rawRegex != nil {
+			if match := f.rawRegex.FindStringSubmatch(raw); len(match) == 2 {
+				val = match[1]
+				ok = true
+			}
+		}
+	}
+	if !ok {
+		return f.op == filterOpExclude
+	}
+	norm := strings.ToLower(strings.TrimSpace(fmt.Sprint(val)))
+	_, found := f.values[norm]
+	if f.op == filterOpInclude {
+		return found
+	}
+	return !found
+}
+
+func lookupFieldValue(payload map[string]interface{}, field string) (string, bool) {
+	if payload == nil || field == "" {
+		return "", false
+	}
+	parts := strings.Split(field, ".")
+	var current interface{} = payload
+	for _, part := range parts {
+		m, ok := current.(map[string]interface{})
+		if !ok {
+			return "", false
+		}
+		var next interface{}
+		if val, exists := m[part]; exists {
+			next = val
+		} else {
+			found := false
+			for k, v := range m {
+				if strings.EqualFold(k, part) {
+					next = v
+					found = true
+					break
+				}
+			}
+			if !found {
+				return "", false
+			}
+		}
+		current = next
+	}
+	switch v := current.(type) {
+	case string:
+		return v, true
+	case fmt.Stringer:
+		return v.String(), true
+	case fmt.GoStringer:
+		return v.GoString(), true
+	case []byte:
+		return string(v), true
+	default:
+		return fmt.Sprint(v), true
+	}
+}
+
+func applyKVFilters(filters []kvFilter, payload map[string]interface{}) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	for _, f := range filters {
+		if !f.allows(payload) {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *memoryEngine) registerPipelineStat(p memPipe) {
+	if p.ID == "" {
+		return
+	}
+	pc := &pipelineCounter{}
+	pc.name.Store(p.Name)
+	if existing, loaded := m.pipelineStats.LoadOrStore(p.ID, pc); loaded {
+		existing.(*pipelineCounter).name.Store(p.Name)
+	}
+}
+
+func (m *memoryEngine) deletePipelineStat(id string) {
+	if id == "" {
+		return
+	}
+	m.pipelineStats.Delete(id)
+}
+
+func (m *memoryEngine) recordPipelineEvent(id, name string, filtered bool) {
+	if id == "" {
+		return
+	}
+	if val, ok := m.pipelineStats.Load(id); ok {
+		pc := val.(*pipelineCounter)
+		if name != "" {
+			pc.name.Store(name)
+		}
+		pc.processed.Add(1)
+		if filtered {
+			pc.filtered.Add(1)
+		}
+		return
+	}
+	pc := &pipelineCounter{}
+	pc.name.Store(name)
+	pc.processed.Add(1)
+	if filtered {
+		pc.filtered.Add(1)
+	}
+	if val, loaded := m.pipelineStats.LoadOrStore(id, pc); loaded {
+		pc = val.(*pipelineCounter)
+		if name != "" {
+			pc.name.Store(name)
+		}
+		pc.processed.Add(1)
+		if filtered {
+			pc.filtered.Add(1)
+		}
+	}
+}
+
+func (m *memoryEngine) GetPipelineStats() []PipelineStats {
+	stats := make([]PipelineStats, 0)
+	m.pipelineStats.Range(func(key, value any) bool {
+		id, _ := key.(string)
+		pc := value.(*pipelineCounter)
+		name, _ := pc.name.Load().(string)
+		filtered := pc.filtered.Load()
+		processed := pc.processed.Load()
+		stats = append(stats, PipelineStats{ID: id, Name: name, Filtered: filtered, Processed: processed})
+		return true
+	})
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].Name < stats[j].Name
+	})
+	return stats
 }
 
 type memRoute struct {
@@ -94,10 +364,11 @@ type memRoute struct {
 
 func NewMemoryEngine() PipelineEngine {
 	return &memoryEngine{
-		seq:            1,
-		filterCache:    map[string]*regexp.Regexp{},
-		versaParser:    filters.NewVersaKVPParser(),
-		paloAltoParser: filters.NewPaloAltoCSVParser(),
+		seq:               1,
+		filterCache:       map[string]*regexp.Regexp{},
+		versaParser:       filters.NewVersaKVPParser(),
+		paloAltoParser:    filters.NewPaloAltoCSVParser(),
+		universalKVParser: filters.NewUniversalKVParser(),
 	}
 }
 
@@ -138,6 +409,15 @@ func NewMemoryEngineWithSamples() PipelineEngine {
 	m.pipelines = []memPipe{
 		{ID: "main", Name: "Main", Description: "Normalize -> filter -> ship", Functions: []string{"Parse CEF", "Drop noisy", "Eval fields"}, IPSource: "first_ipv4"},
 		{ID: "passthru", Name: "Passthru", Description: "No-op", Functions: []string{}, IPSource: "first_ipv4"},
+	}
+	for i := range m.pipelines {
+		filters, err := compileKVFilters(m.pipelines[i].Functions)
+		if err != nil {
+			log.Printf("sample pipeline %s filter compile failed: %v", m.pipelines[i].Name, err)
+			continue
+		}
+		m.pipelines[i].Filters = filters
+		m.registerPipelineStat(m.pipelines[i])
 	}
 	m.routes = []memRoute{
 		{ID: "r1", Name: "CEF to Sentinel", Filter: "_raw?.includes('CEF:')", PipelineID: "main", Destination: "sentinel", Final: true},
@@ -433,6 +713,12 @@ func (m *memoryEngine) applyParsers(functions []string, event map[string]interfa
 					log.Printf("Palo Alto CSV parser error: %v", err)
 				}
 			}
+		case "Universal KV Parse", "kv_parse", "Parse KV":
+			if m.universalKVParser != nil {
+				if err := m.universalKVParser.Parse(event); err != nil {
+					log.Printf("Universal KV parser error: %v", err)
+				}
+			}
 		}
 	}
 	return event, true
@@ -534,6 +820,15 @@ func (m *memoryEngine) processAndAppend(sourceID, msg string) {
 			}
 		}
 	}
+
+	if !applyKVFilters(pl.Filters, payload) {
+		m.recordPipelineEvent(pl.ID, pl.Name, true)
+		metrics.PipelineThroughput.WithLabelValues(pl.Name, matched.Name, sourceID, "filtered").Inc()
+		metrics.PipelineFiltered.WithLabelValues(pl.Name, matched.Name, sourceID).Inc()
+		span.AddEvent("payload_filtered", trace.WithAttributes(attribute.String("pipeline", pl.Name), attribute.String("route", matched.Name)))
+		return
+	}
+	m.recordPipelineEvent(pl.ID, pl.Name, false)
 
 	// Render as JSON
 	out := msg
@@ -683,6 +978,14 @@ func (m *memoryEngine) processAndAppendBatch(sourceID string, messages []string)
 				}
 			}
 		}
+
+		if !applyKVFilters(pl.Filters, payload) {
+			m.recordPipelineEvent(pl.ID, pl.Name, true)
+			metrics.PipelineThroughput.WithLabelValues(pl.Name, matched.Name, sourceID, "filtered").Inc()
+			metrics.PipelineFiltered.WithLabelValues(pl.Name, matched.Name, sourceID).Inc()
+			continue
+		}
+		m.recordPipelineEvent(pl.ID, pl.Name, false)
 
 		// Render as JSON
 		out := msg
@@ -1100,19 +1403,30 @@ func (m *memoryEngine) CreatePipeline(name, desc string, fns []string) (interfac
 	defer m.mu.Unlock()
 	id := fmt.Sprintf("pipe-%d", m.seq)
 	m.seq++
-	p := memPipe{ID: id, Name: name, Description: desc, Functions: fns}
+	filters, err := compileKVFilters(fns)
+	if err != nil {
+		return nil, err
+	}
+	p := memPipe{ID: id, Name: name, Description: desc, Functions: fns, Filters: filters}
 	m.pipelines = append(m.pipelines, p)
+	m.registerPipelineStat(p)
 	return p, nil
 }
 
 func (m *memoryEngine) UpdatePipeline(id, name, desc string, fns []string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	filters, err := compileKVFilters(fns)
+	if err != nil {
+		return err
+	}
 	for i := range m.pipelines {
 		if m.pipelines[i].ID == id {
 			m.pipelines[i].Name = name
 			m.pipelines[i].Description = desc
 			m.pipelines[i].Functions = fns
+			m.pipelines[i].Filters = filters
+			m.registerPipelineStat(m.pipelines[i])
 			return nil
 		}
 	}
@@ -1125,6 +1439,7 @@ func (m *memoryEngine) DeletePipeline(id string) error {
 	for i := range m.pipelines {
 		if m.pipelines[i].ID == id {
 			m.pipelines = append(m.pipelines[:i], m.pipelines[i+1:]...)
+			m.deletePipelineStat(id)
 			return nil
 		}
 	}

@@ -3,10 +3,13 @@ import {
   Box, Button, Dialog, DialogTitle, DialogContent, DialogActions,
   TextField, Select, MenuItem, FormControl, InputLabel,
   Table, TableBody, TableCell, TableHead, TableRow, IconButton,
-  Typography, Chip, Switch, FormControlLabel
+  Typography, Chip, Switch, FormControlLabel, LinearProgress, Snackbar, Alert, Tooltip, Paper,
+  Grid, Card, CardContent
 } from '@mui/material';
-import { Add, Edit, Delete, CloudUpload, CloudDone } from '@mui/icons-material';
+import { Add, Edit, Delete, CloudUpload, CloudDone, ArrowBack as BackIcon, Save as SaveIcon } from '@mui/icons-material';
 import { apiClient } from '../utils/apiClient';
+import DestinationTemplateGallery from './destinations/DestinationTemplateGallery';
+import { DestinationTemplate } from './destinations/destinationTemplates';
 
 interface Destination {
   id: string;
@@ -18,6 +21,9 @@ interface Destination {
 }
 
 export default function DestinationsConfig() {
+  const [currentView, setCurrentView] = useState<'gallery' | 'list' | 'builder'>('list');
+  const [selectedTemplate, setSelectedTemplate] = useState<DestinationTemplate | null>(null);
+  const [testMode, setTestMode] = useState<boolean>(true);
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [open, setOpen] = useState(false);
   const [editingDest, setEditingDest] = useState<Partial<Destination>>({
@@ -30,10 +36,38 @@ export default function DestinationsConfig() {
   const [azureStatus, setAzureStatus] = useState<any>(null);
   const [azureBusy, setAzureBusy] = useState(false);
   const [tenantId, setTenantId] = useState<string>('');
+  const [saveOk, setSaveOk] = useState(false);
 
   useEffect(() => {
     loadDestinations();
   }, []);
+
+  const handleSelectTemplate = (template: DestinationTemplate) => {
+    setSelectedTemplate(template);
+    setCurrentView('builder');
+    setEditingDest({
+      name: template.config.name,
+      type: template.config.type,
+      config: template.config.config
+    });
+  };
+
+  const handleBack = () => {
+    if (confirm('Go back? Your current work will be lost.')) {
+      setCurrentView('list');
+      setEditingDest({ type: 'sentinel', config: {} });
+      setSelectedTemplate(null);
+    }
+  };
+
+  const getProgress = () => {
+    let completed = 0;
+    const total = 3;
+    if (editingDest.name && editingDest.name.trim().length > 0) completed++;
+    if (editingDest.type) completed++;
+    if (editingDest.config && Object.keys(editingDest.config).length > 0) completed++;
+    return (completed / total) * 100;
+  };
 
   const loadDestinations = async () => {
     try {
@@ -47,15 +81,26 @@ export default function DestinationsConfig() {
   };
 
   const handleSave = async () => {
+    if (testMode && currentView === 'builder') {
+      if (confirm('🧪 You are in Test Mode. Switch to Live Mode to save this destination for real?')) {
+        setTestMode(false);
+      }
+      return;
+    }
     try {
       if (editingDest.id) {
         await apiClient.put(`/api/v1/destinations/${editingDest.id}`, editingDest);
       } else {
         await apiClient.post('/api/v1/destinations', editingDest);
       }
-      setOpen(false);
-      setEditingDest({ type: 'sentinel', config: {} });
-      loadDestinations();
+      setSaveOk(true);
+      setTimeout(() => {
+        setOpen(false);
+        setCurrentView('list');
+        setEditingDest({ type: 'sentinel', config: {} });
+        setSelectedTemplate(null);
+        loadDestinations();
+      }, 2000);
     } catch (error) {
       console.error('Failed to save destination:', error);
     }
@@ -278,89 +323,371 @@ export default function DestinationsConfig() {
     }
   };
 
+  // Render gallery view
+  if (currentView === 'gallery') {
+    return (
+      <Paper elevation={6} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+        <DestinationTemplateGallery onSelectTemplate={handleSelectTemplate} />
+      </Paper>
+    );
+  }
+
+  // Render builder view
+  if (currentView === 'builder') {
+    return (
+      <Paper elevation={6} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+        {/* Header */}
+        <Box sx={{ p: 3, borderBottom: 1, borderColor: 'divider', bgcolor: 'primary.50' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+            <Box sx={{ flex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 0.5 }}>
+                <Typography variant="h5" sx={{ fontWeight: 700 }}>
+                  {selectedTemplate?.icon} {selectedTemplate?.title || 'Custom Destination'}
+                </Typography>
+                {testMode && (
+                  <Chip 
+                    label="\ud83e\uddea Test Mode" 
+                    size="small" 
+                    color="warning"
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+              </Box>
+              <Typography variant="body2" color="text.secondary">
+                {selectedTemplate?.description || 'Configure your custom destination'}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <FormControlLabel
+                control={
+                  <Switch 
+                    checked={testMode} 
+                    onChange={(e) => setTestMode(e.target.checked)}
+                    color="warning"
+                  />
+                }
+                label={
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    {testMode ? 'Testing' : 'Live'}
+                  </Typography>
+                }
+              />
+              <Tooltip title="Back to destinations list">
+                <IconButton onClick={handleBack} size="large">
+                  <BackIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+
+          {/* Progress Bar */}
+          <Box sx={{ mt: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                Progress: {Math.round(getProgress())}% Complete
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {Math.round(getProgress()) === 100 ? '\ud83c\udf89 Ready to save!' : 'Keep going...'}
+              </Typography>
+            </Box>
+            <LinearProgress 
+              variant="determinate" 
+              value={getProgress()} 
+              sx={{ 
+                height: 8, 
+                borderRadius: 1,
+                bgcolor: 'grey.200',
+                '& .MuiLinearProgress-bar': {
+                  borderRadius: 1,
+                  background: getProgress() === 100 
+                    ? 'linear-gradient(90deg, #4caf50 0%, #8bc34a 100%)'
+                    : 'linear-gradient(90deg, #2196f3 0%, #21cbf3 100%)'
+                }
+              }}
+            />
+          </Box>
+        </Box>
+
+        {/* Builder Content */}
+        <Box sx={{ p: 3 }}>
+          <TextField
+            fullWidth
+            label="Destination Name"
+            value={editingDest.name || ''}
+            onChange={(e) => setEditingDest({ ...editingDest, name: e.target.value })}
+            margin="normal"
+            required
+            helperText="Give your destination a descriptive name"
+          />
+          <FormControl fullWidth margin="normal">
+            <InputLabel>Type</InputLabel>
+            <Select
+              value={editingDest.type}
+              onChange={(e) => setEditingDest({
+                ...editingDest,
+                type: e.target.value as Destination['type'],
+                config: {}
+              })}
+            >
+              <MenuItem value="sentinel">Microsoft Sentinel</MenuItem>
+              <MenuItem value="azure_loganalytics">Azure Log Analytics</MenuItem>
+              <MenuItem value="splunk">Splunk</MenuItem>
+              <MenuItem value="s3">Amazon S3</MenuItem>
+              <MenuItem value="azure_blob">Azure Blob Storage</MenuItem>
+              <MenuItem value="azure_datalake">Azure Data Lake Gen2</MenuItem>
+              <MenuItem value="elasticsearch">Elasticsearch</MenuItem>
+            </Select>
+          </FormControl>
+          {renderConfigFields()}
+
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 3 }}>
+            <Button variant="outlined" onClick={handleBack}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<SaveIcon />}
+              onClick={handleSave}
+              disabled={!editingDest.name || !editingDest.type}
+              sx={{
+                py: 1.5,
+                px: 4,
+                fontSize: '1.1rem',
+                fontWeight: 700,
+                background: (editingDest.name && editingDest.type)
+                  ? 'linear-gradient(45deg, #4CAF50 30%, #8BC34A 90%)'
+                  : undefined,
+                boxShadow: (editingDest.name && editingDest.type) ? '0 3px 5px 2px rgba(76, 175, 80, .3)' : undefined,
+                '&:hover': (editingDest.name && editingDest.type) ? {
+                  background: 'linear-gradient(45deg, #45A049 30%, #7CB342 90%)',
+                  transform: 'scale(1.05)',
+                  boxShadow: '0 6px 10px 4px rgba(76, 175, 80, .4)'
+                } : undefined
+              }}
+            >
+              {testMode ? '\ud83e\uddea Test Save' : '\ud83c\udf89 Save Destination!'}
+            </Button>
+          </Box>
+        </Box>
+
+        {/* Success Snackbar */}
+        <Snackbar 
+          open={saveOk} 
+          autoHideDuration={4000} 
+          onClose={() => setSaveOk(false)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert 
+            onClose={() => setSaveOk(false)} 
+            severity="success" 
+            sx={{ 
+              width: '100%',
+              fontSize: '1.1rem',
+              fontWeight: 600
+            }}
+            variant="filled"
+          >
+            \ud83c\udf89 {testMode ? 'Test completed! Changes not saved.' : 'Success! Destination saved and ready to use!'}
+          </Alert>
+        </Snackbar>
+      </Paper>
+    );
+  }
+
+  // Helper function to get destination icon and color
+  const getDestinationVisuals = (type: string) => {
+    switch (type) {
+      case 'sentinel': return { icon: '🛡️', color: '#0078D4', bg: '#E6F2FF' };
+      case 'azure_loganalytics': return { icon: '📊', color: '#008AD7', bg: '#E0F4FF' };
+      case 'azure_datalake': return { icon: '🗄️', color: '#00BCF2', bg: '#E0F9FF' };
+      case 'splunk': return { icon: '🔍', color: '#000000', bg: '#F0F0F0' };
+      case 's3': return { icon: '☁️', color: '#FF9900', bg: '#FFF4E6' };
+      case 'elasticsearch': return { icon: '🔎', color: '#00BFB3', bg: '#E0FBF9' };
+      case 'azure_blob': return { icon: '📦', color: '#0089D6', bg: '#E6F4FF' };
+      default: return { icon: '📤', color: '#95A5A6', bg: '#ECF0F1' };
+    }
+  };
+
+  // Render list view (default) - Visual card layout
   return (
     <Box>
-      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between' }}>
-        <Typography variant="h6">Destinations</Typography>
-        <Button
-          variant="contained"
-          startIcon={<Add />}
-          onClick={() => {
-            setEditingDest({ type: 'sentinel', config: {} });
-            setOpen(true);
-          }}
-        >
-          Add Destination
-        </Button>
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Typography variant="h5" sx={{ fontWeight: 700 }}>Destinations</Typography>
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          <Button
+            variant="outlined"
+            startIcon={<Add />}
+            onClick={() => setCurrentView('gallery')}
+            sx={{ borderRadius: 2 }}
+          >
+            Use Template
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<Add />}
+            onClick={() => {
+              setEditingDest({ type: 'sentinel', config: {} });
+              setOpen(true);
+            }}
+            sx={{ borderRadius: 2 }}
+          >
+            Add Destination
+          </Button>
+        </Box>
       </Box>
 
-      <Table>
-        <TableHead>
-          <TableRow>
-            <TableCell>Name</TableCell>
-            <TableCell>Type</TableCell>
-            <TableCell>Status</TableCell>
-            <TableCell>Configuration</TableCell>
-            <TableCell>Enabled</TableCell>
-            <TableCell>Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {destinations.map((dest) => (
-            <TableRow key={dest.id}>
-              <TableCell>{dest.name}</TableCell>
-              <TableCell>{dest.type}</TableCell>
-              <TableCell>
-                <Chip
-                  label={dest.status}
-                  color={dest.status === 'connected' ? 'success' : 
-                         dest.status === 'error' ? 'error' : 'default'}
-                  size="small"
-                />
-              </TableCell>
-              <TableCell>
-                {dest.type === 'sentinel' && `Workspace: ${dest.config.workspaceId?.slice(0, 8)}...`}
-                {dest.type === 'splunk' && `${dest.config.hecUrl}`}
-                {dest.type === 's3' && `s3://${dest.config.bucket}/${dest.config.prefix}`}
-              </TableCell>
-              <TableCell>
-                <Switch
-                  checked={dest.enabled}
-                  onChange={async () => {
-                    await apiClient.patch(`/api/v1/destinations/${dest.id}`, {
-                      enabled: !dest.enabled
-                    });
-                    loadDestinations();
-                  }}
-                />
-              </TableCell>
-              <TableCell>
-                <IconButton
-                  onClick={() => {
-                    setEditingDest(dest);
-                    setOpen(true);
+      {destinations.length === 0 ? (
+        <Paper elevation={3} sx={{ p: 6, textAlign: 'center', borderRadius: 3, bgcolor: 'background.default' }}>
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            No destinations configured yet
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Get started by choosing a template or creating a custom destination
+          </Typography>
+          <Button
+            variant="contained"
+            size="large"
+            startIcon={<Add />}
+            onClick={() => setCurrentView('gallery')}
+            sx={{ borderRadius: 2, px: 4 }}
+          >
+            Browse Templates
+          </Button>
+        </Paper>
+      ) : (
+        <Grid container spacing={3}>
+          {destinations.map((dest) => {
+            const visuals = getDestinationVisuals(dest.type);
+            const configSummary = 
+              dest.type === 'sentinel' ? `Workspace ${dest.config.workspaceId?.slice(0, 8)}...` :
+              dest.type === 'splunk' ? `${dest.config.hecUrl}` :
+              dest.type === 's3' ? `s3://${dest.config.bucket}/${dest.config.prefix || ''}` :
+              dest.type === 'azure_blob' ? `${dest.config.storageAccount}` :
+              dest.type === 'azure_datalake' ? `${dest.config.filesystem}` :
+              dest.type === 'elasticsearch' ? `${dest.config.url}` :
+              'Configuration available';
+
+            return (
+              <Grid item xs={12} sm={6} md={4} key={dest.id}>
+                <Card 
+                  elevation={3}
+                  sx={{
+                    height: '100%',
+                    borderRadius: 3,
+                    transition: 'all 0.3s ease',
+                    border: dest.enabled ? `2px solid ${visuals.color}` : '2px solid transparent',
+                    '&:hover': {
+                      transform: 'translateY(-4px)',
+                      boxShadow: 6,
+                      border: `2px solid ${visuals.color}`,
+                    },
                   }}
                 >
-                  <Edit />
-                </IconButton>
-                <IconButton onClick={() => handleDelete(dest.id)} color="error">
-                  <Delete />
-                </IconButton>
-                {(dest.type === 'sentinel' || dest.type === 'azure_datalake') && (
-                  <>
-                    <IconButton onClick={()=>{ setWorkbenchDest(dest); setWorkbenchOpen(true); }} title="Workbench">
-                      <CloudUpload />
-                    </IconButton>
-                    <IconButton onClick={()=>{ setAzureModalOpen(true); pollAzureStatus(); }} title="Azure Automate">
-                      <CloudDone />
-                    </IconButton>
-                  </>
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+                  <CardContent sx={{ p: 3 }}>
+                    {/* Header with icon and status */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                      <Box 
+                        sx={{ 
+                          width: 56, 
+                          height: 56, 
+                          borderRadius: 2, 
+                          bgcolor: visuals.bg,
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          justifyContent: 'center',
+                          fontSize: 28,
+                        }}
+                      >
+                        {visuals.icon}
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-end' }}>
+                        <Chip
+                          label={dest.status || 'unknown'}
+                          size="small"
+                          color={
+                            dest.status === 'connected' ? 'success' : 
+                            dest.status === 'error' ? 'error' : 'default'
+                          }
+                          sx={{ fontWeight: 600, fontSize: 10 }}
+                        />
+                        <Switch
+                          size="small"
+                          checked={dest.enabled}
+                          onChange={async (e) => {
+                            e.stopPropagation();
+                            await apiClient.patch(`/api/v1/destinations/${dest.id}`, {
+                              enabled: !dest.enabled
+                            });
+                            loadDestinations();
+                          }}
+                          sx={{ ml: -1 }}
+                        />
+                      </Box>
+                    </Box>
+
+                    {/* Name and Type */}
+                    <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: visuals.color }}>
+                      {dest.name}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+                      {dest.type.replace(/_/g, ' ')}
+                    </Typography>
+
+                    {/* Configuration */}
+                    <Box sx={{ mt: 2, mb: 2, p: 1.5, bgcolor: 'background.default', borderRadius: 1.5 }}>
+                      <Typography variant="body2" sx={{ fontSize: 12, color: 'text.secondary', wordBreak: 'break-all' }}>
+                        {configSummary}
+                      </Typography>
+                    </Box>
+
+                    {/* Actions */}
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setEditingDest(dest);
+                          setOpen(true);
+                        }}
+                        sx={{ bgcolor: 'primary.light', '&:hover': { bgcolor: 'primary.main' } }}
+                      >
+                        <Edit fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleDelete(dest.id)}
+                        sx={{ bgcolor: 'error.light', '&:hover': { bgcolor: 'error.main' } }}
+                      >
+                        <Delete fontSize="small" />
+                      </IconButton>
+                      {(dest.type === 'sentinel' || dest.type === 'azure_datalake') && (
+                        <>
+                          <IconButton
+                            size="small"
+                            onClick={() => { setWorkbenchDest(dest); setWorkbenchOpen(true); }}
+                            title="Workbench"
+                            sx={{ bgcolor: 'info.light', '&:hover': { bgcolor: 'info.main' } }}
+                          >
+                            <CloudUpload fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={() => { setAzureModalOpen(true); pollAzureStatus(); }}
+                            title="Azure Automate"
+                            sx={{ bgcolor: 'success.light', '&:hover': { bgcolor: 'success.main' } }}
+                          >
+                            <CloudDone fontSize="small" />
+                          </IconButton>
+                        </>
+                      )}
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            );
+          })}
+        </Grid>
+      )}
 
       <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>

@@ -9,19 +9,31 @@ import (
 	"time"
 )
 
-// BenchmarkProcessAndAppend measures single-event processing throughput (baseline).
-func BenchmarkProcessAndAppend(b *testing.B) {
+// benchEngine builds a memory engine wired with the current severity filter logic
+// so benchmarks exercise the same code paths as production pipelines.
+func benchEngine() *memoryEngine {
 	hub, _ := NewLogHub("")
-	eng := &memoryEngine{
+	pipeFns := []string{"filter:severity=critical|high|med"}
+	filters, err := compileKVFilters(pipeFns)
+	if err != nil {
+		panic(err)
+	}
+	return &memoryEngine{
 		sources:     []*memSource{},
 		dests:       []memDest{},
-		pipelines:   []memPipe{{ID: "default", Name: "default", Functions: []string{}}},
+		pipelines:   []memPipe{{ID: "default", Name: "default", Functions: pipeFns, Filters: filters}},
 		routes:      []memRoute{{Name: "default", PipelineID: "default", Filter: "true"}},
 		hub:         hub,
 		filterCache: make(map[string]*regexp.Regexp),
 	}
+}
 
-	msg := `{"timestamp":"2025-11-15T14:20:00Z","level":"info","message":"test event","ip":"192.168.1.100"}`
+// BenchmarkProcessAndAppend measures single-event processing throughput (baseline).
+
+func BenchmarkProcessAndAppend(b *testing.B) {
+	eng := benchEngine()
+
+	msg := `{"timestamp":"2025-11-15T14:20:00Z","level":"info","message":"test event","ip":"192.168.1.100","severity":"critical"}`
 	sourceID := "bench-source"
 
 	b.ResetTimer()
@@ -38,17 +50,9 @@ func BenchmarkProcessAndAppend(b *testing.B) {
 
 // BenchmarkProcessAndAppendBatch measures batch processing throughput (optimized).
 func BenchmarkProcessAndAppendBatch(b *testing.B) {
-	hub, _ := NewLogHub("")
-	eng := &memoryEngine{
-		sources:     []*memSource{},
-		dests:       []memDest{},
-		pipelines:   []memPipe{{ID: "default", Name: "default", Functions: []string{}}},
-		routes:      []memRoute{{Name: "default", PipelineID: "default", Filter: "true"}},
-		hub:         hub,
-		filterCache: make(map[string]*regexp.Regexp),
-	}
+	eng := benchEngine()
 
-	msg := `{"timestamp":"2025-11-15T14:20:00Z","level":"info","message":"test event","ip":"192.168.1.100"}`
+	msg := `{"timestamp":"2025-11-15T14:20:00Z","level":"info","message":"test event","ip":"192.168.1.100","severity":"critical"}`
 	sourceID := "bench-source"
 	batchSizes := []int{10, 100, 1000}
 
@@ -80,15 +84,7 @@ func BenchmarkSyntheticLoad(b *testing.B) {
 
 	for _, rate := range rates {
 		b.Run(fmt.Sprintf("rate_%d", rate), func(b *testing.B) {
-			hub, _ := NewLogHub("")
-			eng := &memoryEngine{
-				sources:     []*memSource{},
-				dests:       []memDest{},
-				pipelines:   []memPipe{{ID: "default", Name: "default", Functions: []string{}}},
-				routes:      []memRoute{{Name: "default", PipelineID: "default", Filter: "true"}},
-				hub:         hub,
-				filterCache: make(map[string]*regexp.Regexp),
-			}
+			eng := benchEngine()
 
 			srcID := "synth-bench"
 			var received uint64

@@ -61,9 +61,63 @@ outputs:
   # Seeded automatically at startup (idempotent) but documented for clarity
   # sentinel:
   #   table_name: Custom_BibblLogs_CL
+  azure_log_analytics:
+    enabled: false
+    workspace_id: ""
+    shared_key: "vault://secret/data/bibbl#sharedKey"
+    log_type: "BibblLogs"
+    resource_group: ""
+    resource_id: ""
+    batch_max_events: 500
+    batch_max_bytes: 1048576
+    flush_interval_sec: 10
+    concurrency: 2
+    max_retries: 3
+    retry_delay_sec: 2
+    spill:
+      enabled: true
+      directory: ./data/spill/azure
+      max_bytes: 10737418240
+      segment_size: 1048576
+      encrypt: false
+      key_env: BIBBL_SPILL_KEY
   azure_datalake:
     storage_account: "<account>" # Azure Storage account name
     filesystem: "logs"          # ADLS Gen2 filesystem (container) name
     directory: "bibbl/raw"      # Optional base directory path
     path_template: "bibbl/raw/${yyyy}/${MM}/${dd}/${HH}/data-${mm}.jsonl" # simple token expansion plan
     format: jsonl                # future: parquet
+
+secrets:
+  vault:
+    enabled: true
+    address: http://vault:8200
+    namespace: ""
+    mount_path: secret
+    kv_version: 2
+    token: dev-root-token
+    cache_ttl: 5m
+    request_timeout: 10s
+    tls_skip_verify: true
+    tls:
+      ca_file: ""
+      cert_file: ""
+      key_file: ""
+
+telemetry:
+  otlp:
+    endpoint: ""
+    headers: {}
+    insecure: false
+    compression: gzip
+    timeout: 10s
+    sample_ratio: 1.0
+
+# Pipelines are managed through the API/UI, but filter functions follow the same syntax used in
+# the web console. Example payload for reference:
+# pipelines:
+#   - name: "High severity"
+#     description: "Ship only critical/high/med"
+#     functions:
+#       - "Parse Versa KVP"
+#       - "filter:severity=critical|high|med"

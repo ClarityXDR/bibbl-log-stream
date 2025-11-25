@@ -17,8 +17,12 @@ import (
 	"bibbl/internal/api"
 	"bibbl/internal/config"
 	"bibbl/internal/diagnostics"
+	"bibbl/internal/diagnostics/selfcheck"
 	"bibbl/internal/metrics"
 	"bibbl/internal/platform/logger"
+	"bibbl/internal/secrets"
+	vaultsecrets "bibbl/internal/secrets/vault"
+	"bibbl/internal/telemetry"
 	"bibbl/internal/version"
 	bibbltls "bibbl/pkg/tls"
 )
@@ -29,7 +33,9 @@ func main() {
 	diagMode := flag.Bool("diagnostics", false, "Print diagnostic information and exit")
 	diagFormat := flag.String("diag-format", "text", "Diagnostics output format (text|json)")
 	diagEnv := flag.Bool("diag-env", false, "Include environment variables in diagnostics")
-	cfg := config.Load()
+	configPath := flag.String("config", "", "Path to configuration file (default: ./config.yaml)")
+	printEffectiveConfig := flag.Bool("print-effective-config", false, "Print effective configuration and exit")
+	effectiveConfigFormat := flag.String("effective-config-format", "yaml", "Format for --print-effective-config output (yaml|json)")
 
 	// CLI overrides
 	hostFlag := flag.String("host", "", "Server host to bind (overrides config)")
@@ -49,16 +55,17 @@ func main() {
 		fmt.Printf("Bibbl Log Stream %s (commit %s, date %s)\n", version.Version, version.Commit, version.Date)
 		return
 	}
-	if *healthCheck {
-		os.Exit(performHealthCheck(cfg))
-	}
-	if *diagMode {
-		info := diagnostics.Collect(cfg, *diagEnv)
-		if err := diagnostics.Print(info, *diagFormat); err != nil {
-			fmt.Fprintf(os.Stderr, "Error printing diagnostics: %v\n", err)
-			os.Exit(1)
+
+	var cfg *config.Config
+	var err error
+	if strings.TrimSpace(*configPath) != "" {
+		cfg, err = config.LoadFile(*configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to load config %s: %v\n", *configPath, err)
+			os.Exit(2)
 		}
-		return
+	} else {
+		cfg = config.Load()
 	}
 
 	if *hostFlag != "" {
@@ -75,6 +82,59 @@ func main() {
 	}
 	if *tlsMin != "" {
 		cfg.Server.TLS.MinVersion = *tlsMin
+	}
+
+	// Syslog overrides
+	if *syslogEnable {
+		cfg.Inputs.Syslog.Enabled = true
+	}
+	if *syslogHost != "" {
+		cfg.Inputs.Syslog.Host = *syslogHost
+	}
+	if *syslogPort > 0 {
+		cfg.Inputs.Syslog.Port = *syslogPort
+	}
+	if *syslogCert != "" {
+		cfg.Inputs.Syslog.TLS.CertFile = *syslogCert
+	}
+	if *syslogKey != "" {
+		cfg.Inputs.Syslog.TLS.KeyFile = *syslogKey
+	}
+	if *syslogMin != "" {
+		cfg.Inputs.Syslog.TLS.MinVersion = *syslogMin
+	}
+
+	var vaultResolver *vaultsecrets.Client
+	if cfg.Secrets.Vault.Enabled {
+		vaultResolver, err = vaultsecrets.NewClient(cfg.Secrets.Vault)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to initialize vault client: %v\n", err)
+			os.Exit(2)
+		}
+		if err := secrets.ReplacePlaceholders(context.Background(), cfg, vaultResolver); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to resolve vault secrets: %v\n", err)
+			os.Exit(2)
+		}
+	}
+
+	if *printEffectiveConfig {
+		if err := writeEffectiveConfig(cfg, *effectiveConfigFormat); err != nil {
+			fmt.Fprintf(os.Stderr, "Error printing effective config: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if *healthCheck {
+		os.Exit(performHealthCheck(cfg))
+	}
+	if *diagMode {
+		info := diagnostics.Collect(cfg, *diagEnv)
+		if err := diagnostics.Print(info, *diagFormat); err != nil {
+			fmt.Fprintf(os.Stderr, "Error printing diagnostics: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	// Ensure web server has TLS: generate self-signed cert if missing
@@ -108,26 +168,6 @@ func main() {
 		}
 	}
 
-	// Syslog overrides
-	if *syslogEnable {
-		cfg.Inputs.Syslog.Enabled = true
-	}
-	if *syslogHost != "" {
-		cfg.Inputs.Syslog.Host = *syslogHost
-	}
-	if *syslogPort > 0 {
-		cfg.Inputs.Syslog.Port = *syslogPort
-	}
-	if *syslogCert != "" {
-		cfg.Inputs.Syslog.TLS.CertFile = *syslogCert
-	}
-	if *syslogKey != "" {
-		cfg.Inputs.Syslog.TLS.KeyFile = *syslogKey
-	}
-	if *syslogMin != "" {
-		cfg.Inputs.Syslog.TLS.MinVersion = *syslogMin
-	}
-
 	if err := ensureSyslogAutoCert(cfg); err != nil {
 		log.Fatalf("failed to ensure syslog TLS certificate: %v", err)
 	}
@@ -143,9 +183,29 @@ func main() {
 			fmt.Fprintf(os.Stderr, "config warning: %s\n", w)
 		}
 	}
+	if err := selfcheck.Run(context.Background(), cfg, selfcheck.Dependencies{Vault: vaultResolver}); err != nil {
+		fmt.Fprintf(os.Stderr, "startup dependency check failed: %v\n", err)
+		os.Exit(2)
+	}
 	// Initialize structured logger
 	logger.Init(logger.Config{Level: cfg.Logging.Level, Format: cfg.Logging.Format})
 	logger.Slog().Info("starting bibbl", "version", version.Version, "commit", version.Commit, "date", version.Date)
+
+	shutdownTelemetry, err := telemetry.Init(context.Background(), cfg.Telemetry)
+	if err != nil {
+		logger.Slog().Error("telemetry init failed", "err", err)
+		os.Exit(2)
+	}
+	defer func() {
+		if shutdownTelemetry == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTelemetry(ctx); err != nil {
+			logger.Slog().Warn("telemetry shutdown failed", "err", err)
+		}
+	}()
 
 	// Initialize Prometheus metrics
 	metrics.Init()
@@ -171,6 +231,20 @@ func main() {
 		logger.Slog().Error("graceful shutdown failed", "err", err)
 	}
 	logger.Slog().Info("shutdown complete")
+}
+
+func writeEffectiveConfig(cfg *config.Config, format string) error {
+	data, err := cfg.MarshalEffective(format)
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stdout.Write(data); err != nil {
+		return err
+	}
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		fmt.Println()
+	}
+	return nil
 }
 
 // performHealthCheck performs a health check against the local server

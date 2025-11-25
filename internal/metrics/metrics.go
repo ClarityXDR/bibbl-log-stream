@@ -94,6 +94,13 @@ var (
 		Help:      "Total events processed by pipeline.",
 	}, []string{"pipeline", "route", "source", "status"})
 
+	PipelineFiltered = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "bibbl",
+		Subsystem: "pipeline",
+		Name:      "filtered_events_total",
+		Help:      "Total events dropped by pipeline filters.",
+	}, []string{"pipeline", "route", "source"})
+
 	PipelineErrors = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "bibbl",
 		Subsystem: "pipeline",
@@ -199,7 +206,7 @@ func Init() {
 		registry.MustRegister(
 			HTTPLatency, HTTPInFlight, HTTPRequests, HTTPRequestSize, HTTPResponseSize,
 			BufferSize, BufferDropped, BufferDroppedCurrent, BufferCapacity,
-			PipelineLatency, PipelineThroughput, PipelineErrors,
+			PipelineLatency, PipelineThroughput, PipelineFiltered, PipelineErrors,
 			IngestEvents, IngestBytes, IngestLatency,
 			SystemInfo, SystemUptime, ConfigReloads,
 			AuthAttempts, AuthSessions,
